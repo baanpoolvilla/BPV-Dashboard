@@ -1,0 +1,104 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  password     String
+  avatarUrl    String?
+  department   String
+  role         String   // "admin" | "manager" | "employee"
+  position     String?
+  createdAt    DateTime @default(now())
+
+  attendances    Attendance[]
+  projectMembers ProjectMember[]
+  meetingNotes   MeetingNote[]
+  worksheets     Worksheet[]
+}
+
+model Attendance {
+  id       String    @id @default(uuid())
+  userId   String
+  user     User      @relation(fields: [userId], references: [id])
+  date     DateTime  @db.Date
+  checkIn  DateTime?
+  checkOut DateTime?
+  status   String    // "present" | "late" | "absent" | "leave"
+
+  @@index([userId, date])
+}
+
+model Project {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  status      String    // "active" | "completed" | "on_hold"
+  startDate   DateTime
+  dueDate     DateTime?
+  createdAt   DateTime  @default(now())
+
+  members    ProjectMember[]
+  tasks      Task[]
+  worksheets Worksheet[]
+}
+
+model ProjectMember {
+  id            String  @id @default(uuid())
+  projectId     String
+  project       Project @relation(fields: [projectId], references: [id])
+  userId        String
+  user          User    @relation(fields: [userId], references: [id])
+  roleInProject String? // "owner" | "contributor"
+
+  @@unique([projectId, userId])
+}
+
+model Task {
+  id          String    @id @default(uuid())
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id])
+  assigneeId  String?
+  title       String
+  status      String    // "todo" | "in_progress" | "done" | "overdue"
+  dueDate     DateTime?
+  completedAt DateTime?
+
+  @@index([projectId, status])
+}
+
+model Worksheet {
+  id           String   @id @default(uuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id])
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  canvasData   Json     @default("{\"version\":1,\"elements\":[]}")
+  thumbnailUrl String?
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+
+  meetingNotes MeetingNote[]
+
+  @@unique([projectId, userId])
+  @@index([projectId, userId])
+}
+
+model MeetingNote {
+  id             String    @id @default(uuid())
+  worksheetId    String
+  worksheet      Worksheet @relation(fields: [worksheetId], references: [id])
+  userId         String
+  user           User      @relation(fields: [userId], references: [id])
+  meetingDate    DateTime
+  canvasSnapshot Json
+  createdAt      DateTime  @default(now())
+
+  @@index([worksheetId, meetingDate])
+}
