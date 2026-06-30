@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { Stage, Layer, Text, Image as KonvaImage, Line, Rect, Transformer } from 'react-konva';
-import Konva from 'konva';
+import type Konva from 'konva';
 import { apiGet, apiPut, apiPost, apiFetch } from '../../api/client';
 import type { Worksheet, CanvasData, CanvasElement, MeetingNoteItem, MeetingNoteDetail } from '../../api/types';
 import AppShell from '../../components/AppShell';
@@ -22,8 +22,6 @@ function useDebounce<T>(value: T, ms: number): T {
 
 export default function WorksheetPage() {
   const { userId, projectId } = useParams<{ userId: string; projectId: string }>();
-  const navigate = useNavigate();
-
   const [worksheet, setWorksheet] = useState<Worksheet | null>(null);
   const [elements, setElements] = useState<CanvasElement[]>([]);
   const [tool, setTool] = useState<Tool>('select');
@@ -147,7 +145,7 @@ export default function WorksheetPage() {
     }
   }
 
-  function handleStageMouseMove(e: Konva.KonvaEventObject<MouseEvent>) {
+  function handleStageMouseMove(_e: Konva.KonvaEventObject<MouseEvent>) {
     if (!isDrawing || tool !== 'draw') return;
     const stage = stageRef.current;
     if (!stage) return;

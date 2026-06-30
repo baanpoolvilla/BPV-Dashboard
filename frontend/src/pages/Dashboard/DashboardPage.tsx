@@ -157,7 +157,7 @@ export default function DashboardPage() {
                   <Tooltip
                     contentStyle={{ background: '#1a1e2a', border: '1px solid #2e344a', borderRadius: 8, fontSize: 12 }}
                     cursor={{ fill: 'rgba(55,138,221,0.06)' }}
-                    formatter={(v: number) => [`${v}%`, 'คะแนน']}
+                    formatter={(v) => [`${v}%`, 'คะแนน']}
                   />
                   <Bar dataKey="score" fill="#378ADD" radius={[4, 4, 0, 0]} maxBarSize={40} />
                 </BarChart>
@@ -179,7 +179,7 @@ export default function DashboardPage() {
                   </Pie>
                   <Tooltip
                     contentStyle={{ background: '#1a1e2a', border: '1px solid #2e344a', borderRadius: 8, fontSize: 12 }}
-                    formatter={(v: number, name: string) => [v, name]}
+                    formatter={(v, name) => [v, name]}
                   />
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: '#8892a4' }} />
                 </PieChart>
