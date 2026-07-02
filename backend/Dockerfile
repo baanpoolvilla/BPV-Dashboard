@@ -8,7 +8,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN DATABASE_URL="postgresql://x:x@localhost/x" npx prisma generate
+RUN npx prisma generate
 RUN npx tsc
 
 FROM node:22-alpine AS runner
