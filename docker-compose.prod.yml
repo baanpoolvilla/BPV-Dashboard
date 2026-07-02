@@ -10,11 +10,8 @@ services:
     ports:
       - "3006:3001"
     networks:
-      - bpv-net
-      - shared-db        # network เดียวกับ postgres ที่มีอยู่แล้ว
+      - unified-chat_chat-net
 
 networks:
-  bpv-net:
-    driver: bridge
-  shared-db:
-    external: true       # ใช้ network ของ postgres ที่มีอยู่
+  unified-chat_chat-net:
+    external: true
