@@ -33,10 +33,17 @@ router.get('/:worksheetId', async (req: AuthRequest, res: Response) => {
   res.json(ws);
 });
 
-// PUT /api/worksheets/:worksheetId
+// PUT /api/worksheets/:worksheetId  (owner or CEO only)
 router.put('/:worksheetId', async (req: AuthRequest, res: Response) => {
   const worksheetId = req.params['worksheetId'] as string;
   const { canvasData } = req.body as { canvasData: InputJsonValue };
+
+  if (req.userRole !== 'CEO') {
+    const owner = await prisma.worksheet.findUnique({ where: { id: worksheetId }, select: { userId: true } });
+    if (!owner) { res.status(404).json({ error: 'Worksheet not found' }); return; }
+    if (owner.userId !== req.userId) { res.status(403).json({ error: 'Forbidden' }); return; }
+  }
+
   const ws = await prisma.worksheet.update({
     where: { id: worksheetId },
     data: { canvasData },
