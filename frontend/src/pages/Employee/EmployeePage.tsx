@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { apiGet } from '../../api/client';
+import { apiGet, apiPost } from '../../api/client';
 import type { User, ProjectCard, AttendanceRecord } from '../../api/types';
+import { useAuthStore } from '../../store/auth';
 import AppShell from '../../components/AppShell';
 import styles from './EmployeePage.module.css';
 
@@ -46,9 +47,7 @@ function ProjectCardItem({ project, userId }: { project: ProjectCard; userId: st
       <div className={styles.projectThumb}>
         {project.thumbnailUrl
           ? <img src={project.thumbnailUrl} alt="" className={styles.thumbImg} />
-          : <div className={styles.thumbPlaceholder}>
-              <span>WS</span>
-            </div>
+          : <div className={styles.thumbPlaceholder}><span>WS</span></div>
         }
       </div>
       <div className={styles.projectInfo}>
@@ -65,31 +64,68 @@ function ProjectCardItem({ project, userId }: { project: ProjectCard; userId: st
 
 export default function EmployeePage() {
   const { userId } = useParams<{ userId: string }>();
+  const navigate = useNavigate();
+  const authUser = useAuthStore(s => s.user);
+  const isCEO = authUser?.role === 'CEO';
+  const isSelf = authUser?.id === userId;
+
   const [user, setUser] = useState<User | null>(null);
   const [projects, setProjects] = useState<ProjectCard[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
     setLoading(true);
+    setError(false);
+    const from = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     Promise.all([
       apiGet<User>(`/users/${userId}`),
       apiGet<ProjectCard[]>(`/users/${userId}/projects`),
-      apiGet<AttendanceRecord[]>(`/users/${userId}/attendance-history?from=${new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)}`),
+      apiGet<AttendanceRecord[]>(`/users/${userId}/attendance-history?from=${from}`),
     ])
       .then(([u, p, a]) => { setUser(u); setProjects(p); setAttendance(a); })
+      .catch(err => {
+        if (err.message?.includes('403') && !isCEO && authUser?.id) {
+          navigate(`/employees/${authUser.id}`, { replace: true });
+        } else {
+          setError(true);
+        }
+      })
       .finally(() => setLoading(false));
   }, [userId]);
+
+  async function handleCreateProject() {
+    if (!newProjectName.trim() || !userId) return;
+    setCreating(true);
+    try {
+      await apiPost(`/users/${userId}/projects`, { name: newProjectName.trim() });
+      setNewProjectName('');
+      setShowCreateForm(false);
+      const p = await apiGet<ProjectCard[]>(`/users/${userId}/projects`);
+      setProjects(p);
+    } catch {
+      alert('ไม่สามารถสร้างโปรเจกต์ได้');
+    } finally {
+      setCreating(false);
+    }
+  }
 
   const presentDays = attendance.filter(a => a.status === 'present').length;
   const lateDays = attendance.filter(a => a.status === 'late').length;
   const absentDays = attendance.filter(a => a.status === 'absent').length;
 
+  const canCreate = isCEO || isSelf;
+
   return (
     <AppShell
-      backTo="/"
-      backLabel="Dashboard"
+      backTo={isCEO ? '/' : undefined}
+      backLabel={isCEO ? 'Dashboard' : undefined}
       title={user?.name ?? ''}
     >
       {loading ? (
@@ -102,6 +138,8 @@ export default function EmployeePage() {
             </div>
           </div>
         </div>
+      ) : error ? (
+        <div className="card" style={{ color: 'var(--red)', padding: 40, textAlign: 'center' }}>ไม่พบข้อมูล</div>
       ) : user ? (
         <div className={styles.page}>
           {/* Profile header */}
@@ -140,9 +178,9 @@ export default function EmployeePage() {
             <p className={styles.sectionTitle}>ประวัติการเข้างาน (30 วันล่าสุด)</p>
             <AttendanceHeatmap records={attendance} />
             <div className={styles.heatLegend}>
-              {[['present', 'มาทำงาน'], ['late', 'มาสาย'], ['absent', 'ขาดงาน'], ['leave', 'ลาหยุด']].map(([s, l]) => (
+              {([['present', 'var(--green)', 'มาทำงาน'], ['late', 'var(--yellow)', 'มาสาย'], ['absent', 'var(--red)', 'ขาดงาน'], ['leave', 'var(--accent-violet)', 'ลาหยุด']] as const).map(([s, c, l]) => (
                 <span key={s} className={styles.heatLegendItem}>
-                  <span className={styles.heatLegendDot} style={{ background: s === 'present' ? 'var(--green)' : s === 'late' ? 'var(--yellow)' : s === 'absent' ? 'var(--red)' : 'var(--accent-violet)' }} />
+                  <span className={styles.heatLegendDot} style={{ background: c }} />
                   {l}
                 </span>
               ))}
@@ -151,9 +189,50 @@ export default function EmployeePage() {
 
           {/* Projects */}
           <div>
-            <p className={styles.sectionTitle} style={{ marginBottom: 12 }}>โปรเจกต์ ({projects.length})</p>
-            {projects.length === 0 ? (
-              <div className="card" style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 40 }}>ไม่มีโปรเจกต์</div>
+            <div className={styles.sectionHeader}>
+              <p className={styles.sectionTitle}>โปรเจกต์ ({projects.length})</p>
+              {canCreate && (
+                <button
+                  className="btn btn-primary"
+                  style={{ fontSize: 13, padding: '6px 14px' }}
+                  onClick={() => { setShowCreateForm(v => !v); setNewProjectName(''); }}
+                >
+                  {showCreateForm ? '✕ ยกเลิก' : '+ สร้างโปรเจกต์'}
+                </button>
+              )}
+            </div>
+
+            {showCreateForm && (
+              <div className={`card ${styles.createForm}`}>
+                <p className={styles.createFormTitle}>โปรเจกต์ใหม่</p>
+                <input
+                  className={styles.createInput}
+                  type="text"
+                  placeholder="ชื่อโปรเจกต์"
+                  value={newProjectName}
+                  onChange={e => setNewProjectName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleCreateProject()}
+                  autoFocus
+                />
+                <div className={styles.createFormActions}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleCreateProject}
+                    disabled={!newProjectName.trim() || creating}
+                  >
+                    {creating ? 'กำลังสร้าง...' : 'สร้าง'}
+                  </button>
+                  <button className="btn btn-ghost" onClick={() => { setShowCreateForm(false); setNewProjectName(''); }}>
+                    ยกเลิก
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {projects.length === 0 && !showCreateForm ? (
+              <div className="card" style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 40 }}>
+                {canCreate ? 'ยังไม่มีโปรเจกต์ — กด "+ สร้างโปรเจกต์" เพื่อเริ่ม' : 'ไม่มีโปรเจกต์'}
+              </div>
             ) : (
               <div className={styles.projectGrid}>
                 {projects.map(p => <ProjectCardItem key={p.id} project={p} userId={userId!} />)}
@@ -161,9 +240,7 @@ export default function EmployeePage() {
             )}
           </div>
         </div>
-      ) : (
-        <div className="card" style={{ color: 'var(--red)', padding: 40, textAlign: 'center' }}>ไม่พบข้อมูลพนักงาน</div>
-      )}
+      ) : null}
     </AppShell>
   );
 }

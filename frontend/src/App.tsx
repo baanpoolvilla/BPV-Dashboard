@@ -10,12 +10,19 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
 }
 
+function RootRoute() {
+  const user = useAuthStore(s => s.user);
+  if (user?.role === 'CEO') return <DashboardPage />;
+  if (user?.id) return <Navigate to={`/employees/${user.id}`} replace />;
+  return <Navigate to="/login" replace />;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/" element={<RequireAuth><DashboardPage /></RequireAuth>} />
+        <Route path="/" element={<RequireAuth><RootRoute /></RequireAuth>} />
         <Route path="/employees/:userId" element={<RequireAuth><EmployeePage /></RequireAuth>} />
         <Route path="/employees/:userId/projects/:projectId/worksheet" element={<RequireAuth><WorksheetPage /></RequireAuth>} />
         <Route path="*" element={<Navigate to="/" replace />} />

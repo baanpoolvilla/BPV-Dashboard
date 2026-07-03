@@ -96,6 +96,47 @@
   margin-bottom: 16px;
 }
 
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.sectionHeader .sectionTitle { margin-bottom: 0; }
+
+.createForm {
+  margin-bottom: 14px;
+}
+
+.createFormTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.createInput {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: border-color var(--transition);
+  margin-bottom: 10px;
+}
+
+.createInput:focus { border-color: var(--accent-blue); }
+.createInput::placeholder { color: var(--text-muted); }
+
+.createFormActions {
+  display: flex;
+  gap: 8px;
+}
+
 .heatmap {
   display: flex;
   flex-wrap: wrap;

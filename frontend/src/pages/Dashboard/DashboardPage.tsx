@@ -117,7 +117,7 @@ export default function DashboardPage() {
               onChange={e => { setDepartment(e.target.value); setEmpPage(1); }}
             >
               <option value="all">ทุกแผนก</option>
-              {['Engineering', 'Design', 'Marketing', 'Product', 'Finance'].map(d => (
+              {['IT', 'Account', 'Admin', 'Marketing', 'Housekeeper'].map(d => (
                 <option key={d} value={d}>{d}</option>
               ))}
             </select>
@@ -155,7 +155,7 @@ export default function DashboardPage() {
                   <XAxis dataKey="department" tick={{ fill: '#8892a4', fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: '#8892a4', fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 100]} />
                   <Tooltip
-                    contentStyle={{ background: '#1a1e2a', border: '1px solid #2e344a', borderRadius: 8, fontSize: 12 }}
+                    contentStyle={{ background: 'var(--surface-0)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text-primary)' }}
                     cursor={{ fill: 'rgba(55,138,221,0.06)' }}
                     formatter={(v) => [`${v}%`, 'คะแนน']}
                   />
@@ -178,7 +178,7 @@ export default function DashboardPage() {
                     ))}
                   </Pie>
                   <Tooltip
-                    contentStyle={{ background: '#1a1e2a', border: '1px solid #2e344a', borderRadius: 8, fontSize: 12 }}
+                    contentStyle={{ background: 'var(--surface-0)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text-primary)' }}
                     formatter={(v, name) => [v, name]}
                   />
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: '#8892a4' }} />

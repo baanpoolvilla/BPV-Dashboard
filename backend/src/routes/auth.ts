@@ -18,7 +18,7 @@ router.post('/login', async (req: Request, res: Response) => {
     return;
   }
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await prisma.user.findFirst({ where: { email: { equals: email.toLowerCase(), mode: 'insensitive' } } });
   if (!user || !(await bcrypt.compare(password, user.password))) {
     res.status(401).json({ error: 'Invalid credentials' });
     return;

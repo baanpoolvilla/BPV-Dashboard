@@ -1,9 +1,10 @@
 import { Router, Response } from 'express';
-import { authenticate, AuthRequest } from '../middleware/auth';
+import { authenticate, requireCEO, AuthRequest } from '../middleware/auth';
 import prisma from '../lib/prisma';
 
 const router = Router();
 router.use(authenticate);
+router.use(requireCEO);
 
 function getPeriodRange(period: string) {
   const now = new Date();
@@ -20,15 +21,18 @@ function getPeriodRange(period: string) {
   return { start, end };
 }
 
+// Only non-CEO users are counted as "employees" in the dashboard
+const EMPLOYEE_ROLE_FILTER = { role: { not: 'CEO' } };
+
 // GET /api/dashboard/summary
 router.get('/summary', async (req: AuthRequest, res: Response) => {
   const period = (req.query.period as string) || 'today';
   const department = (req.query.department as string) || 'all';
   const { start, end } = getPeriodRange(period);
 
-  const userWhere = department !== 'all' ? { department } : {};
+  const userWhere = { ...EMPLOYEE_ROLE_FILTER, ...(department !== 'all' ? { department } : {}) };
   const [totalEmployees, attendances, tasks] = await Promise.all([
-    prisma.user.count({ where: { role: 'employee', ...userWhere } }),
+    prisma.user.count({ where: userWhere }),
     prisma.attendance.findMany({
       where: { date: { gte: start, lte: end }, user: userWhere },
       select: { status: true },
@@ -40,10 +44,8 @@ router.get('/summary', async (req: AuthRequest, res: Response) => {
   ]);
 
   const presentCount = attendances.filter((a: { status: string }) => a.status === 'present' || a.status === 'late').length;
-  const onTimeCount = attendances.filter((a: { status: string }) => a.status === 'present').length;
   const doneCount = tasks.filter((t: { status: string }) => t.status === 'done').length;
   const overdueCount = tasks.filter((t: { status: string }) => t.status === 'overdue').length;
-  void onTimeCount;
 
   res.json({
     totalEmployees,
@@ -56,7 +58,7 @@ router.get('/summary', async (req: AuthRequest, res: Response) => {
 // GET /api/dashboard/department-performance
 router.get('/department-performance', async (_req: AuthRequest, res: Response) => {
   const users = await prisma.user.findMany({
-    where: { role: 'employee' },
+    where: EMPLOYEE_ROLE_FILTER,
     select: { department: true, id: true },
   });
 
@@ -85,7 +87,7 @@ router.get('/attendance-breakdown', async (req: AuthRequest, res: Response) => {
   const { start, end } = getPeriodRange(period);
 
   const attendances = await prisma.attendance.findMany({
-    where: { date: { gte: start, lte: end } },
+    where: { date: { gte: start, lte: end }, user: EMPLOYEE_ROLE_FILTER },
     select: { status: true },
   });
 
@@ -109,8 +111,7 @@ router.get('/employees', async (req: AuthRequest, res: Response) => {
   const todayEnd = new Date(today);
   todayEnd.setHours(23, 59, 59, 999);
 
-  const userWhere: Record<string, unknown> = { role: 'employee' };
-  if (department !== 'all') userWhere.department = department;
+  const userWhere = { ...EMPLOYEE_ROLE_FILTER, ...(department !== 'all' ? { department } : {}) };
 
   const [users, total] = await Promise.all([
     prisma.user.findMany({
@@ -126,11 +127,7 @@ router.get('/employees', async (req: AuthRequest, res: Response) => {
         projectMembers: {
           include: {
             project: {
-              include: {
-                tasks: {
-                  select: { status: true },
-                },
-              },
+              include: { tasks: { select: { status: true } } },
             },
           },
         },
