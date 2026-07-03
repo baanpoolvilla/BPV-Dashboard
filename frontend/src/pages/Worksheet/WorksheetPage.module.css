@@ -1,19 +1,19 @@
 .worksheetLayout {
   display: flex;
   height: calc(100vh - 52px - 48px);
-  gap: 0;
   overflow: hidden;
   margin: -24px;
 }
 
+/* ─── Toolbar ─────────────────────────────────────────── */
 .toolbar {
-  width: 72px;
-  background: var(--bg-1);
+  width: 160px;
+  background: var(--surface-0);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px 6px;
+  gap: 0;
+  padding: 10px 8px;
   overflow-y: auto;
   flex-shrink: 0;
 }
@@ -21,110 +21,189 @@
 .toolGroup {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding-bottom: 8px;
+  gap: 2px;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
   border-bottom: 1px solid var(--border);
 }
 
-.toolGroup:last-child { border-bottom: none; }
+.toolGroup:last-child { border-bottom: none; margin-bottom: 0; }
 
 .toolGroupLabel {
   font-size: 9px;
+  font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  text-align: center;
+  letter-spacing: 0.09em;
+  padding: 0 6px;
   margin-bottom: 4px;
 }
 
 .toolBtn {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 2px;
+  gap: 8px;
   background: none;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  padding: 7px 4px;
-  font-size: 16px;
+  padding: 7px 10px;
   cursor: pointer;
   transition: background var(--transition), color var(--transition), border-color var(--transition);
   width: 100%;
+  text-align: left;
 }
 
-.toolBtn:hover { background: var(--surface-1); color: var(--text-primary); }
-.toolActive { background: var(--accent-blue-dim) !important; border-color: var(--accent-blue) !important; color: var(--accent-blue) !important; }
+.toolBtn:hover:not(:disabled) { background: var(--surface-1); color: var(--text-primary); }
+
+.toolActive {
+  background: var(--accent-blue-dim) !important;
+  border-color: var(--accent-blue) !important;
+  color: var(--accent-blue) !important;
+}
+
+.toolDisabled {
+  opacity: 0.35;
+  cursor: not-allowed !important;
+}
+
+.toolDanger { color: var(--red) !important; }
+.toolDanger:hover { background: var(--red-dim) !important; border-color: var(--red) !important; }
+
+.toolAccent { color: var(--accent-blue) !important; }
+.toolAccent:hover { background: var(--accent-blue-dim) !important; }
+
+.toolIcon {
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
 
 .toolLabel {
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
+/* ─── Colour palette ──────────────────────────────────── */
 .palette {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 4px;
-  padding: 0 2px;
+  padding: 2px 4px;
 }
 
 .colorSwatch {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 4px;
   border: 2px solid transparent;
   cursor: pointer;
-  transition: transform var(--transition), border-color var(--transition);
+  transition: transform var(--transition), box-shadow var(--transition);
 }
 
-.colorSwatch:hover { transform: scale(1.1); }
-.swatchActive { border-color: #fff !important; }
+.colorSwatch:hover { transform: scale(1.18); }
+
+.swatchActive {
+  box-shadow: 0 0 0 2px var(--surface-0), 0 0 0 4px var(--accent-blue);
+}
+
+/* ─── Sliders ─────────────────────────────────────────── */
+.sliderRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+}
 
 .slider {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   accent-color: var(--accent-blue);
   cursor: pointer;
 }
 
 .sliderVal {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-muted);
-  text-align: center;
-  display: block;
+  font-variant-numeric: tabular-nums;
+  min-width: 28px;
+  text-align: right;
+  white-space: nowrap;
 }
 
+/* ─── Canvas area ─────────────────────────────────────── */
 .canvasArea {
   flex: 1;
   position: relative;
   overflow: hidden;
   background:
-    radial-gradient(circle, var(--surface-1) 1px, transparent 1px) 0 0 / 24px 24px,
-    var(--bg-0);
+    radial-gradient(circle, #c8d0e0 1px, transparent 1px) 0 0 / 24px 24px,
+    #f7f8fc;
 }
 
-.zoomBadge {
+/* ─── Zoom controls ───────────────────────────────────── */
+.zoomControls {
   position: absolute;
-  bottom: 12px;
-  left: 12px;
-  background: var(--surface-1);
+  bottom: 14px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  background: var(--surface-0);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  font-size: 11px;
-  color: var(--text-muted);
-  padding: 3px 8px;
-  pointer-events: none;
-  font-variant-numeric: tabular-nums;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
 }
 
+.zoomBtn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.zoomBtn:hover { background: var(--surface-1); color: var(--text-primary); }
+
+.zoomBadge {
+  background: none;
+  border: none;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 0 8px;
+  height: 28px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  transition: background var(--transition);
+  display: flex;
+  align-items: center;
+}
+
+.zoomBadge:hover { background: var(--surface-1); }
+
+/* ─── Save status ─────────────────────────────────────── */
 .saveStatus {
   font-size: 12px;
   color: var(--text-muted);
 }
 
+/* ─── History panel ───────────────────────────────────── */
 .historyPanel {
   width: 280px;
-  background: var(--bg-1);
+  background: var(--surface-0);
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -151,11 +230,12 @@
   color: var(--text-muted);
   font-size: 14px;
   cursor: pointer;
-  padding: 2px 4px;
-  transition: color var(--transition);
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition), color var(--transition);
 }
 
-.closeBtn:hover { color: var(--text-primary); }
+.closeBtn:hover { background: var(--surface-1); color: var(--text-primary); }
 
 .notesList {
   flex: 1;
@@ -167,7 +247,7 @@
   font-size: 12px;
   color: var(--text-muted);
   text-align: center;
-  padding: 20px;
+  padding: 24px 16px;
 }
 
 .noteItem {

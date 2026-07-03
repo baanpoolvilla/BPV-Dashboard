@@ -65,7 +65,7 @@ export interface ProjectCard {
 
 export interface CanvasElement {
   id: string;
-  type: 'text' | 'image' | 'freedraw' | 'rect';
+  type: 'text' | 'image' | 'freedraw' | 'rect' | 'circle' | 'line';
   x?: number;
   y?: number;
   text?: string;
@@ -74,6 +74,8 @@ export interface CanvasElement {
   url?: string;
   width?: number;
   height?: number;
+  radiusX?: number;
+  radiusY?: number;
   points?: number[];
   stroke?: string;
   strokeWidth?: number;

@@ -1,24 +1,27 @@
 :root {
-  --bg-0: #0d0f14;
-  --bg-1: #13161e;
-  --surface-0: #1a1e2a;
-  --surface-1: #222636;
-  --surface-2: #2a2f42;
-  --border: #2e344a;
-  --text-primary: #e2e8f0;
-  --text-secondary: #8892a4;
-  --text-muted: #4a5568;
-  --accent-blue: #378ADD;
-  --accent-violet: #7F77DD;
-  --accent-blue-dim: rgba(55,138,221,0.15);
-  --green: #22c55e;
-  --yellow: #f59e0b;
-  --red: #ef4444;
-  --red-dim: rgba(239,68,68,0.15);
+  --bg-0: #f0f3f9;
+  --bg-1: #ffffff;
+  --surface-0: #ffffff;
+  --surface-1: #f5f7fc;
+  --surface-2: #e8ecf5;
+  --border: #dde2ee;
+  --text-primary: #1a2033;
+  --text-secondary: #4a5568;
+  --text-muted: #8892a4;
+  --accent-blue: #2563EB;
+  --accent-violet: #7C3AED;
+  --accent-blue-dim: rgba(37,99,235,0.10);
+  --green: #16a34a;
+  --yellow: #d97706;
+  --red: #dc2626;
+  --red-dim: rgba(220,38,38,0.10);
 
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
 
   --transition: 150ms ease;
 }
@@ -42,7 +45,7 @@ button { font-family: inherit; cursor: pointer; }
 input, select { font-family: inherit; }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--bg-1); }
+::-webkit-scrollbar-track { background: var(--surface-1); }
 ::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border); }
 
@@ -55,21 +58,22 @@ input, select { font-family: inherit; }
   border: 1px solid transparent;
   font-size: 13px;
   font-weight: 500;
-  transition: background var(--transition), border-color var(--transition), opacity var(--transition);
+  transition: background var(--transition), border-color var(--transition), opacity var(--transition), box-shadow var(--transition);
   white-space: nowrap;
 }
-.btn-primary { background: var(--accent-blue); color: #fff; border-color: var(--accent-blue); }
-.btn-primary:hover { background: #2f78c5; }
+.btn-primary { background: var(--accent-blue); color: #fff; border-color: var(--accent-blue); box-shadow: 0 1px 3px rgba(37,99,235,0.3); }
+.btn-primary:hover { background: #1d4ed8; box-shadow: 0 2px 6px rgba(37,99,235,0.4); }
 .btn-ghost { background: transparent; color: var(--text-secondary); border-color: var(--border); }
 .btn-ghost:hover { background: var(--surface-1); color: var(--text-primary); }
-.btn-danger { background: transparent; color: var(--red); border-color: var(--red); }
-.btn-danger:hover { background: var(--red-dim); }
+.btn-danger { background: transparent; color: var(--red); border-color: var(--border); }
+.btn-danger:hover { background: var(--red-dim); border-color: var(--red); }
 
 .card {
   background: var(--surface-0);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 20px;
+  box-shadow: var(--shadow-sm);
 }
 
 .badge {
@@ -82,13 +86,13 @@ input, select { font-family: inherit; }
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.badge-present { background: rgba(34,197,94,0.12); color: var(--green); }
-.badge-late { background: rgba(245,158,11,0.12); color: var(--yellow); }
+.badge-present { background: rgba(22,163,74,0.10); color: var(--green); }
+.badge-late { background: rgba(217,119,6,0.10); color: var(--yellow); }
 .badge-absent { background: var(--red-dim); color: var(--red); }
-.badge-leave { background: rgba(127,119,221,0.12); color: var(--accent-violet); }
+.badge-leave { background: rgba(124,58,237,0.10); color: var(--accent-violet); }
 .badge-active { background: var(--accent-blue-dim); color: var(--accent-blue); }
-.badge-completed { background: rgba(34,197,94,0.12); color: var(--green); }
-.badge-on_hold { background: rgba(245,158,11,0.12); color: var(--yellow); }
+.badge-completed { background: rgba(22,163,74,0.10); color: var(--green); }
+.badge-on_hold { background: rgba(217,119,6,0.10); color: var(--yellow); }
 
 .skeleton {
   background: linear-gradient(90deg, var(--surface-1) 25%, var(--surface-2) 50%, var(--surface-1) 75%);
