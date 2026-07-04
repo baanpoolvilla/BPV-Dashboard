@@ -1052,7 +1052,11 @@ export default function WorksheetPage() {
                       x={el.x ?? 0} y={el.y ?? 0}
                       draggable={draggable}
                       onClick={onClick}
-                      onDragEnd={e => handleElementChange(el.id, { x: e.target.x(), y: e.target.y() })}
+                      onDragEnd={e => {
+                        // A resize handle's dragend bubbles up here too — only move
+                        // the whole table when the Group itself was dragged
+                        if (e.target === e.currentTarget) handleElementChange(el.id, { x: e.target.x(), y: e.target.y() });
+                      }}
                     >
                       <Rect width={totalWidth} height={totalHeight} fill="#ffffff" stroke={el.stroke ?? DEFAULT_COLOR} strokeWidth={1.5} />
                       {rows.map((row, ri) =>
