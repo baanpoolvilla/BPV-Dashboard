@@ -47,6 +47,96 @@ function useDebounce<T>(value: T, ms: number): T {
   return dv;
 }
 
+// Approximate on-canvas bounding box of an element (used by the minimap)
+function elementBounds(el: CanvasElement): { x: number; y: number; w: number; h: number } {
+  switch (el.type) {
+    case 'image':
+    case 'rect':
+      return { x: el.x ?? 0, y: el.y ?? 0, w: el.width ?? 100, h: el.height ?? 60 };
+    case 'circle':
+      return {
+        x: (el.x ?? 0) - (el.radiusX ?? 40), y: (el.y ?? 0) - (el.radiusY ?? 40),
+        w: (el.radiusX ?? 40) * 2, h: (el.radiusY ?? 40) * 2,
+      };
+    case 'text': {
+      const fs = el.fontSize ?? 16;
+      const lines = (el.text ?? '').split('\n');
+      return { x: el.x ?? 0, y: el.y ?? 0, w: Math.max(...lines.map(l => l.length), 1) * fs * 0.6, h: lines.length * fs * 1.3 };
+    }
+    case 'table': {
+      const cw = el.colWidths ?? [];
+      const rh = el.rowHeights ?? (el.rows ?? []).map(() => el.rowHeight ?? DEFAULT_ROW_HEIGHT);
+      return { x: el.x ?? 0, y: el.y ?? 0, w: cw.reduce((a, b) => a + b, 0) || 100, h: rh.reduce((a, b) => a + b, 0) || 40 };
+    }
+    case 'line':
+    case 'freedraw': {
+      const pts = el.points ?? [];
+      const ox = el.x ?? 0, oy = el.y ?? 0;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (let i = 0; i < pts.length; i += 2) {
+        minX = Math.min(minX, pts[i]!); maxX = Math.max(maxX, pts[i]!);
+        minY = Math.min(minY, pts[i + 1]!); maxY = Math.max(maxY, pts[i + 1]!);
+      }
+      if (!isFinite(minX)) return { x: ox, y: oy, w: 1, h: 1 };
+      return { x: ox + minX, y: oy + minY, w: (maxX - minX) || 1, h: (maxY - minY) || 1 };
+    }
+    default:
+      return { x: el.x ?? 0, y: el.y ?? 0, w: 1, h: 1 };
+  }
+}
+
+function Minimap({ elements, scale, position, stageSize, onNavigate }: {
+  elements: CanvasElement[];
+  scale: number;
+  position: { x: number; y: number };
+  stageSize: { width: number; height: number };
+  onNavigate: (worldX: number, worldY: number) => void;
+}) {
+  const MM_W = 180, MM_H = 120, PAD = 60;
+  const ref = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const boundsList = elements.map(elementBounds);
+  const vx = -position.x / scale, vy = -position.y / scale;
+  const vw = stageSize.width / scale, vh = stageSize.height / scale;
+  let minX = vx, minY = vy, maxX = vx + vw, maxY = vy + vh;
+  for (const b of boundsList) {
+    minX = Math.min(minX, b.x); minY = Math.min(minY, b.y);
+    maxX = Math.max(maxX, b.x + b.w); maxY = Math.max(maxY, b.y + b.h);
+  }
+  minX -= PAD; minY -= PAD; maxX += PAD; maxY += PAD;
+  const worldW = Math.max(1, maxX - minX), worldH = Math.max(1, maxY - minY);
+  const mmScale = Math.min(MM_W / worldW, MM_H / worldH);
+  const offX = (MM_W - worldW * mmScale) / 2, offY = (MM_H - worldH * mmScale) / 2;
+  const toMM = (x: number, y: number) => ({ x: offX + (x - minX) * mmScale, y: offY + (y - minY) * mmScale });
+
+  function handle(clientX: number, clientY: number) {
+    const r = ref.current?.getBoundingClientRect();
+    if (!r) return;
+    const mx = clientX - r.left - offX, my = clientY - r.top - offY;
+    onNavigate(minX + mx / mmScale, minY + my / mmScale);
+  }
+
+  const vp = toMM(vx, vy);
+  return (
+    <div
+      ref={ref}
+      className={styles.minimap}
+      onPointerDown={e => { setDragging(true); handle(e.clientX, e.clientY); e.currentTarget.setPointerCapture(e.pointerId); }}
+      onPointerMove={e => { if (dragging) handle(e.clientX, e.clientY); }}
+      onPointerUp={e => { setDragging(false); try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }}
+    >
+      {boundsList.map((b, i) => {
+        const p = toMM(b.x, b.y);
+        return <div key={i} className={styles.minimapItem}
+          style={{ left: p.x, top: p.y, width: Math.max(2, b.w * mmScale), height: Math.max(2, b.h * mmScale) }} />;
+      })}
+      <div className={styles.minimapViewport}
+        style={{ left: vp.x, top: vp.y, width: vw * mmScale, height: vh * mmScale }} />
+    </div>
+  );
+}
+
 export default function WorksheetPage() {
   const { userId, projectId } = useParams<{ userId: string; projectId: string }>();
   const [worksheet, setWorksheet] = useState<Worksheet | null>(null);
@@ -69,7 +159,8 @@ export default function WorksheetPage() {
   const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [editing, setEditing] = useState<{ id: string; ri?: number; ci?: number } | null>(null);
+  // `newAt` = creating a fresh text element at this canvas point (no element/transformer yet)
+  const [editing, setEditing] = useState<{ id?: string; ri?: number; ci?: number; newAt?: { x: number; y: number } } | null>(null);
   const [editValue, setEditValue] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -146,15 +237,15 @@ export default function WorksheetPage() {
     const stage = stageRef.current;
     if (!tr || !stage) return;
     const selectedEl = elements.find(e => e.id === selectedId);
-    // Tables use their own per-column/per-row drag handles, not the Transformer
-    if (selectedId && tool === 'select' && selectedEl?.type !== 'table') {
+    // Tables use their own per-column/per-row drag handles; don't show the box while editing text
+    if (selectedId && tool === 'select' && !editing && selectedEl?.type !== 'table') {
       const node = stage.findOne(`#${CSS.escape(selectedId)}`);
       if (node) tr.nodes([node]);
     } else {
       tr.nodes([]);
     }
     tr.getLayer()?.batchDraw();
-  }, [selectedId, tool, elements]);
+  }, [selectedId, tool, elements, editing]);
 
   // Re-measure the selection box whenever a selected element's own geometry
   // changes (e.g. table cell edits) — Konva doesn't auto-recompute a Group's
@@ -247,13 +338,11 @@ export default function WorksheetPage() {
       setIsDrawing(true);
       setCurrentLine([pos.x, pos.y]);
     } else if (tool === 'text') {
-      pushHistory(elements);
-      const id = addId();
-      setElements(prev => [...prev, { id, type: 'text', x: pos.x, y: pos.y, text: '', fontSize, color }]);
-      setSelectedId(id);
+      // Open a floating editor at the click point; the element is only created on commit
+      setSelectedId(null);
       setTool('select');
       setEditValue('');
-      setEditing({ id });
+      setEditing({ newAt: { x: pos.x, y: pos.y } });
     } else if (tool === 'rect' || tool === 'circle' || tool === 'line') {
       setDrawStartPos({ x: pos.x, y: pos.y });
       setIsDrawing(true);
@@ -366,7 +455,19 @@ export default function WorksheetPage() {
     setEditing({ id, ri, ci });
   }
 
-  function getEditorRect(target: { id: string; ri?: number; ci?: number }) {
+  function getEditorRect(target: { id?: string; ri?: number; ci?: number; newAt?: { x: number; y: number } }) {
+    // New (not-yet-created) text element
+    if (target.newAt) {
+      const fs = fontSize;
+      const lines = (editValue || '').split('\n');
+      const longest = Math.max(...lines.map(l => l.length), 6);
+      return {
+        x: target.newAt.x, y: target.newAt.y - 2,
+        width: Math.min(600, Math.max(120, longest * fs * 0.62 + 12)),
+        height: lines.length * fs * 1.3 + 8,
+        fontSize: fs,
+      };
+    }
     const el = elements.find(e => e.id === target.id);
     if (!el) return null;
     if (target.ri === undefined || target.ci === undefined) {
@@ -394,7 +495,7 @@ export default function WorksheetPage() {
 
   // Commit the current cell and jump to a neighbour (Tab = right w/ wrap, Enter = down)
   function moveCell(dr: number, dc: number) {
-    if (!editing || editing.ri === undefined || editing.ci === undefined) return;
+    if (!editing || editing.ri === undefined || editing.ci === undefined || !editing.id) return;
     const { id, ri, ci } = editing;
     const el = elements.find(e => e.id === id);
     if (!el) return;
@@ -467,18 +568,29 @@ export default function WorksheetPage() {
 
   function commitEdit() {
     if (!editing) return;
-    const { id, ri, ci } = editing;
-    if (ri === undefined || ci === undefined) {
+    const { id, ri, ci, newAt } = editing;
+    if (newAt) {
+      // Create the text element only if the user actually typed something
+      if (editValue.trim() !== '') {
+        pushHistory(elements);
+        const nid = addId();
+        setElements(prev => [...prev, { id: nid, type: 'text', x: newAt.x, y: newAt.y, text: editValue, fontSize, color }]);
+        setSelectedId(nid);
+        markDirty();
+      }
+    } else if (id && (ri === undefined || ci === undefined)) {
       if (editValue.trim() === '') {
+        pushHistory(elements);
         setElements(prev => prev.filter(el => el.id !== id));
+        markDirty();
       } else {
         handleElementChange(id, { text: editValue });
       }
-    } else {
+    } else if (id) {
       const el = elements.find(e => e.id === id);
       if (el) {
         const rows = (el.rows ?? [['']]).map(r => [...r]);
-        rows[ri]![ci] = editValue;
+        rows[ri!]![ci!] = editValue;
         handleElementChange(id, { rows });
       }
     }
@@ -486,13 +598,6 @@ export default function WorksheetPage() {
   }
 
   function cancelEdit() {
-    if (!editing) return;
-    const { id, ri } = editing;
-    if (ri === undefined) {
-      // discard a freshly-created, never-typed-into text element
-      const el = elements.find(e => e.id === id);
-      if (el && (el.text ?? '') === '') setElements(prev => prev.filter(e => e.id !== id));
-    }
     setEditing(null);
   }
 
@@ -964,11 +1069,11 @@ export default function WorksheetPage() {
                             draggable
                             onMouseEnter={e => setCur(e, 'col-resize')}
                             onMouseLeave={e => setCur(e, 'default')}
-                            onDragStart={() => pushHistory(elements)}
                             onDragMove={e => e.target.y(0)}
                             onDragEnd={e => {
                               const newW = Math.max(30, e.target.x() + 3 - colX[ci]!);
                               const next = [...colWidths]; next[ci] = newW;
+                              pushHistory(elements);
                               handleElementChange(el.id, { colWidths: next });
                             }}
                           />
@@ -986,11 +1091,11 @@ export default function WorksheetPage() {
                             draggable
                             onMouseEnter={e => setCur(e, 'row-resize')}
                             onMouseLeave={e => setCur(e, 'default')}
-                            onDragStart={() => pushHistory(elements)}
                             onDragMove={e => e.target.x(0)}
                             onDragEnd={e => {
                               const newH = Math.max(16, e.target.y() + 3 - rowY[ri]!);
                               const next = [...rowHeights]; next[ri] = newH;
+                              pushHistory(elements);
                               handleElementChange(el.id, { rowHeights: next, rowHeight: undefined });
                             }}
                           />
@@ -1086,6 +1191,15 @@ export default function WorksheetPage() {
               ⚠ {uploadError} <span style={{ opacity: 0.7, marginLeft: 6 }}>(คลิกเพื่อปิด)</span>
             </div>
           )}
+
+          {/* Minimap */}
+          <Minimap
+            elements={displayElements}
+            scale={scale}
+            position={position}
+            stageSize={stageSize}
+            onNavigate={(wx, wy) => setPosition({ x: stageSize.width / 2 - wx * scale, y: stageSize.height / 2 - wy * scale })}
+          />
 
           {/* Zoom controls */}
           <div className={styles.zoomControls}>

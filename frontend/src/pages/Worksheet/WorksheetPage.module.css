@@ -184,6 +184,35 @@
   cursor: pointer;
 }
 
+/* ─── Minimap ─────────────────────────────────────────── */
+.minimap {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  width: 180px;
+  height: 120px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  cursor: pointer;
+  z-index: 6;
+}
+
+.minimapItem {
+  position: absolute;
+  background: #94a3b8;
+  border-radius: 1px;
+}
+
+.minimapViewport {
+  position: absolute;
+  border: 1.5px solid var(--accent-blue);
+  background: rgba(37, 99, 235, 0.08);
+  pointer-events: none;
+}
+
 /* ─── Zoom controls ───────────────────────────────────── */
 .zoomControls {
   position: absolute;
