@@ -1078,6 +1078,15 @@ export default function WorksheetPage() {
                         ))
                       )}
 
+                      {/* Selection outline (tables don't use the Transformer) */}
+                      {tableSelected && (
+                        <Rect
+                          x={-2} y={-2} width={totalWidth + 4} height={totalHeight + 4}
+                          stroke="#2563EB" strokeWidth={1.5} dash={[6, 3]}
+                          listening={false}
+                        />
+                      )}
+
                       {/* Column-width drag handles (right border of each column) */}
                       {tableSelected && colWidths.map((cw, ci) => {
                         const borderX = colX[ci]! + cw;
