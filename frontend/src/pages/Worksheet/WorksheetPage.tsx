@@ -71,6 +71,8 @@ export default function WorksheetPage() {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [editing, setEditing] = useState<{ id: string; ri?: number; ci?: number } | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -354,7 +356,16 @@ export default function WorksheetPage() {
     const el = elements.find(e => e.id === target.id);
     if (!el) return null;
     if (target.ri === undefined || target.ci === undefined) {
-      return { x: el.x ?? 0, y: (el.y ?? 0) - 4, width: 220, height: (el.fontSize ?? fontSize) * 1.4 + 4, fontSize: el.fontSize ?? fontSize };
+      // Text element — grow the box with the content (multi-line aware)
+      const fs = el.fontSize ?? fontSize;
+      const lines = (editValue || el.text || '').split('\n');
+      const longest = Math.max(...lines.map(l => l.length), 6);
+      return {
+        x: el.x ?? 0, y: (el.y ?? 0) - 2,
+        width: Math.min(600, Math.max(120, longest * fs * 0.62 + 12)),
+        height: lines.length * fs * 1.3 + 8,
+        fontSize: fs,
+      };
     }
     const rows = el.rows ?? [['']];
     const colWidths = el.colWidths ?? rows[0]!.map(() => DEFAULT_COL_WIDTH);
@@ -365,6 +376,66 @@ export default function WorksheetPage() {
       width: colWidths[target.ci] ?? DEFAULT_COL_WIDTH, height: rowHeight,
       fontSize: 13,
     };
+  }
+
+  // Commit the current cell and jump to a neighbour (Tab = right w/ wrap, Enter = down)
+  function moveCell(dr: number, dc: number) {
+    if (!editing || editing.ri === undefined || editing.ci === undefined) return;
+    const { id, ri, ci } = editing;
+    const el = elements.find(e => e.id === id);
+    if (!el) return;
+    const rows = (el.rows ?? [['']]).map(r => [...r]);
+    rows[ri]![ci] = editValue;
+    handleElementChange(id, { rows });
+    const numCols = rows[0]!.length;
+    const numRows = rows.length;
+    let nr = ri + dr, nc = ci + dc;
+    if (nc >= numCols) { nc = 0; nr += 1; }
+    else if (nc < 0) { nc = numCols - 1; nr -= 1; }
+    if (nr < 0 || nr >= numRows) { setEditing(null); return; }
+    setEditValue(rows[nr]![nc] ?? '');
+    setEditing({ id, ri: nr, ci: nc });
+  }
+
+  // Smart table structure edits (operate on the currently-selected table)
+  function selectedTable(): CanvasElement | undefined {
+    const el = elements.find(e => e.id === selectedId);
+    return el?.type === 'table' ? el : undefined;
+  }
+
+  function addTableRow() {
+    const t = selectedTable();
+    if (!t) return;
+    const cols = t.rows?.[0]?.length ?? DEFAULT_TABLE_COLS;
+    pushHistory(elements);
+    handleElementChange(t.id, { rows: [...(t.rows ?? []), Array(cols).fill('')] });
+  }
+
+  function addTableCol() {
+    const t = selectedTable();
+    if (!t) return;
+    pushHistory(elements);
+    handleElementChange(t.id, {
+      rows: (t.rows ?? []).map(r => [...r, '']),
+      colWidths: [...(t.colWidths ?? []), DEFAULT_COL_WIDTH],
+    });
+  }
+
+  function removeTableRow() {
+    const t = selectedTable();
+    if (!t || (t.rows?.length ?? 0) <= 1) return;
+    pushHistory(elements);
+    handleElementChange(t.id, { rows: (t.rows ?? []).slice(0, -1) });
+  }
+
+  function removeTableCol() {
+    const t = selectedTable();
+    if (!t || (t.rows?.[0]?.length ?? 0) <= 1) return;
+    pushHistory(elements);
+    handleElementChange(t.id, {
+      rows: (t.rows ?? []).map(r => r.slice(0, -1)),
+      colWidths: (t.colWidths ?? []).slice(0, -1),
+    });
   }
 
   function commitEdit() {
@@ -400,19 +471,52 @@ export default function WorksheetPage() {
 
   async function handleImageUpload(file: File) {
     if (!worksheet) return;
-    const fd = new FormData();
-    fd.append('file', file);
-    const res = await apiFetch(`/worksheets/${worksheet.id}/upload-image`, { method: 'POST', body: fd, headers: {} });
-    const { url } = await res.json();
-    pushHistory(elements);
-    const id = addId();
-    setElements(prev => [...prev, { id, type: 'image', x: 80, y: 80, width: 300, height: 200, url }]);
-    setSelectedId(id);
-    markDirty();
+    if (!file.type.startsWith('image/')) { setUploadError('ไฟล์ที่เลือกไม่ใช่รูปภาพ'); return; }
+    if (file.size > 10 * 1024 * 1024) { setUploadError('รูปภาพใหญ่เกิน 10MB'); return; }
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await apiFetch(`/worksheets/${worksheet.id}/upload-image`, { method: 'POST', body: fd, headers: {} });
+      if (!res.ok) throw new Error(`อัปโหลดไม่สำเร็จ (${res.status})`);
+      const { url } = await res.json();
+      if (!url) throw new Error('เซิร์ฟเวอร์ไม่ได้ส่ง URL ของรูปกลับมา');
+      // Keep aspect ratio: cap the longest side at 320px
+      const dims = await new Promise<{ w: number; h: number }>(resolve => {
+        const img = new window.Image();
+        img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = () => resolve({ w: 300, h: 200 });
+        img.src = url;
+      });
+      const maxSide = 320;
+      const ratio = dims.w && dims.h ? Math.min(maxSide / dims.w, maxSide / dims.h, 1) : 1;
+      pushHistory(elements);
+      const id = addId();
+      setElements(prev => [...prev, {
+        id, type: 'image', x: 80, y: 80,
+        width: Math.round((dims.w || 300) * ratio),
+        height: Math.round((dims.h || 200) * ratio),
+        url,
+      }]);
+      setSelectedId(id);
+      markDirty();
+    } catch (err) {
+      console.error('Image upload failed:', err);
+      setUploadError(err instanceof Error ? err.message : 'อัปโหลดรูปภาพไม่สำเร็จ');
+    } finally {
+      setUploading(false);
+    }
   }
 
   function handlePaste(e: React.ClipboardEvent<HTMLDivElement>) {
     if (viewNote) return;
+    // Screenshot / image on the clipboard → upload it
+    const imgItem = Array.from(e.clipboardData.items).find(it => it.type.startsWith('image/'));
+    if (imgItem) {
+      const file = imgItem.getAsFile();
+      if (file) { e.preventDefault(); handleImageUpload(file); return; }
+    }
     const text = e.clipboardData.getData('text/plain');
     if (!text || !text.includes('\t')) return; // only intercept tabular (Excel) paste; let other paste behave normally
     e.preventDefault();
@@ -553,6 +657,28 @@ export default function WorksheetPage() {
               </button>
             )}
           </div>
+
+          {selectedTable() && !viewNote && (
+            <div className={styles.toolGroup}>
+              <p className={styles.toolGroupLabel}>ตาราง</p>
+              <button className={styles.toolBtn} onClick={addTableRow} title="เพิ่มแถว">
+                <span className={styles.toolIcon}>⊕</span>
+                <span className={styles.toolLabel}>เพิ่มแถว</span>
+              </button>
+              <button className={styles.toolBtn} onClick={addTableCol} title="เพิ่มคอลัมน์">
+                <span className={styles.toolIcon}>⊞</span>
+                <span className={styles.toolLabel}>เพิ่มคอลัมน์</span>
+              </button>
+              <button className={styles.toolBtn} onClick={removeTableRow} title="ลบแถวล่างสุด">
+                <span className={styles.toolIcon}>⊖</span>
+                <span className={styles.toolLabel}>ลบแถว</span>
+              </button>
+              <button className={styles.toolBtn} onClick={removeTableCol} title="ลบคอลัมน์ขวาสุด">
+                <span className={styles.toolIcon}>⊟</span>
+                <span className={styles.toolLabel}>ลบคอลัมน์</span>
+              </button>
+            </div>
+          )}
 
           <div className={styles.toolGroup}>
             <p className={styles.toolGroupLabel}>สี</p>
@@ -825,29 +951,59 @@ export default function WorksheetPage() {
           {editing && (() => {
             const rect = getEditorRect(editing);
             if (!rect) return null;
+            const isCell = editing.ri !== undefined && editing.ci !== undefined;
+            const commonStyle = {
+              left: rect.x * scale + position.x,
+              top: rect.y * scale + position.y,
+              width: rect.width * scale,
+              height: rect.height * scale,
+              fontSize: rect.fontSize * scale,
+            };
+            if (isCell) {
+              return (
+                <input
+                  autoFocus
+                  className={styles.inlineEditor}
+                  style={commonStyle}
+                  value={editValue}
+                  onChange={e => setEditValue(e.target.value)}
+                  onFocus={e => e.target.select()}
+                  onKeyDown={e => {
+                    if (e.key === 'Tab') { e.preventDefault(); moveCell(0, e.shiftKey ? -1 : 1); }
+                    else if (e.key === 'Enter') { e.preventDefault(); moveCell(1, 0); }
+                    else if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+                    e.stopPropagation();
+                  }}
+                  onBlur={commitEdit}
+                />
+              );
+            }
+            // Text element — multi-line textarea (Enter = newline, Esc/blur = commit)
             return (
-              <input
+              <textarea
                 autoFocus
                 className={styles.inlineEditor}
-                style={{
-                  left: rect.x * scale + position.x,
-                  top: rect.y * scale + position.y,
-                  width: rect.width * scale,
-                  height: rect.height * scale,
-                  fontSize: rect.fontSize * scale,
-                }}
+                style={{ ...commonStyle, resize: 'none', overflow: 'hidden', lineHeight: 1.3 }}
                 value={editValue}
+                placeholder="พิมพ์ข้อความ… (Enter ขึ้นบรรทัดใหม่)"
                 onChange={e => setEditValue(e.target.value)}
                 onFocus={e => e.target.select()}
                 onKeyDown={e => {
-                  if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
-                  else if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+                  if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
                   e.stopPropagation();
                 }}
                 onBlur={commitEdit}
               />
             );
           })()}
+
+          {/* Upload status / error toast */}
+          {uploading && <div className={styles.uploadToast}>⏳ กำลังอัปโหลดรูปภาพ…</div>}
+          {uploadError && (
+            <div className={`${styles.uploadToast} ${styles.uploadToastError}`} onClick={() => setUploadError(null)}>
+              ⚠ {uploadError} <span style={{ opacity: 0.7, marginLeft: 6 }}>(คลิกเพื่อปิด)</span>
+            </div>
+          )}
 
           {/* Zoom controls */}
           <div className={styles.zoomControls}>

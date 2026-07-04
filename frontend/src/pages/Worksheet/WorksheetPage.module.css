@@ -161,6 +161,29 @@
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 
+/* ─── Upload toast ────────────────────────────────────── */
+.uploadToast {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.uploadToastError {
+  background: var(--red-dim);
+  border-color: var(--red);
+  color: var(--red);
+  cursor: pointer;
+}
+
 /* ─── Zoom controls ───────────────────────────────────── */
 .zoomControls {
   position: absolute;
