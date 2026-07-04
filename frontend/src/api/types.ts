@@ -86,6 +86,7 @@ export interface CanvasElement {
   rows?: string[][];
   colWidths?: number[];
   rowHeight?: number;
+  rowHeights?: number[];
 }
 
 export interface CanvasData {

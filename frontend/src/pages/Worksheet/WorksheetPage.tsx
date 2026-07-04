@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
 import { useParams } from 'react-router-dom';
 import { Stage, Layer, Text, Image as KonvaImage, Line, Rect, Ellipse, Group, Transformer } from 'react-konva';
 import type Konva from 'konva';
-import { apiGet, apiPut, apiPost, apiFetch } from '../../api/client';
+import { apiGet, apiPut, apiPost } from '../../api/client';
 import type { Worksheet, CanvasData, CanvasElement, MeetingNoteItem, MeetingNoteDetail } from '../../api/types';
 import AppShell from '../../components/AppShell';
 import styles from './WorksheetPage.module.css';
@@ -78,7 +78,19 @@ export default function WorksheetPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
   const loadedImages = useRef<Map<string, HTMLImageElement>>(new Map());
+  const editorRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
   const [, forceUpdate] = useState(0);
+
+  // Reliably focus the inline editor when it opens (autoFocus can lose the race
+  // against the canvas click that triggered it)
+  useEffect(() => {
+    if (!editing) return;
+    const t = setTimeout(() => {
+      const node = editorRef.current;
+      if (node) { node.focus(); node.select(); }
+    }, 0);
+    return () => clearTimeout(t);
+  }, [editing]);
 
   useEffect(() => {
     if (!userId || !projectId) return;
@@ -133,14 +145,16 @@ export default function WorksheetPage() {
     const tr = transformerRef.current;
     const stage = stageRef.current;
     if (!tr || !stage) return;
-    if (selectedId && tool === 'select') {
+    const selectedEl = elements.find(e => e.id === selectedId);
+    // Tables use their own per-column/per-row drag handles, not the Transformer
+    if (selectedId && tool === 'select' && selectedEl?.type !== 'table') {
       const node = stage.findOne(`#${CSS.escape(selectedId)}`);
       if (node) tr.nodes([node]);
     } else {
       tr.nodes([]);
     }
     tr.getLayer()?.batchDraw();
-  }, [selectedId, tool]);
+  }, [selectedId, tool, elements]);
 
   // Re-measure the selection box whenever a selected element's own geometry
   // changes (e.g. table cell edits) — Konva doesn't auto-recompute a Group's
@@ -403,12 +417,21 @@ export default function WorksheetPage() {
     return el?.type === 'table' ? el : undefined;
   }
 
+  function tableRowHeights(t: CanvasElement): number[] {
+    return t.rowHeights ?? (t.rows ?? []).map(() => t.rowHeight ?? DEFAULT_ROW_HEIGHT);
+  }
+
   function addTableRow() {
     const t = selectedTable();
     if (!t) return;
     const cols = t.rows?.[0]?.length ?? DEFAULT_TABLE_COLS;
+    const heights = tableRowHeights(t);
     pushHistory(elements);
-    handleElementChange(t.id, { rows: [...(t.rows ?? []), Array(cols).fill('')] });
+    handleElementChange(t.id, {
+      rows: [...(t.rows ?? []), Array(cols).fill('')],
+      rowHeights: [...heights, heights[heights.length - 1] ?? DEFAULT_ROW_HEIGHT],
+      rowHeight: undefined,
+    });
   }
 
   function addTableCol() {
@@ -425,7 +448,11 @@ export default function WorksheetPage() {
     const t = selectedTable();
     if (!t || (t.rows?.length ?? 0) <= 1) return;
     pushHistory(elements);
-    handleElementChange(t.id, { rows: (t.rows ?? []).slice(0, -1) });
+    handleElementChange(t.id, {
+      rows: (t.rows ?? []).slice(0, -1),
+      rowHeights: tableRowHeights(t).slice(0, -1),
+      rowHeight: undefined,
+    });
   }
 
   function removeTableCol() {
@@ -469,41 +496,57 @@ export default function WorksheetPage() {
     setEditing(null);
   }
 
+  // Downscale + compress an image file to a compact data URL that lives inside
+  // the canvas JSON — no object storage / backend upload required.
+  function compressImage(file: File, maxSide: number, quality: number): Promise<{ url: string; w: number; h: number }> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('อ่านไฟล์รูปไม่สำเร็จ'));
+      reader.onload = () => {
+        const img = new window.Image();
+        img.onerror = () => reject(new Error('ไฟล์รูปเสียหายหรือไม่รองรับ'));
+        img.onload = () => {
+          const ratio = Math.min(maxSide / img.naturalWidth, maxSide / img.naturalHeight, 1);
+          const w = Math.max(1, Math.round(img.naturalWidth * ratio));
+          const h = Math.max(1, Math.round(img.naturalHeight * ratio));
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return reject(new Error('เบราว์เซอร์ไม่รองรับการย่อรูป'));
+          ctx.drawImage(img, 0, 0, w, h);
+          // PNG (may have transparency) stays PNG; everything else → JPEG for size
+          const isPng = file.type === 'image/png';
+          const url = canvas.toDataURL(isPng ? 'image/png' : 'image/jpeg', quality);
+          resolve({ url, w, h });
+        };
+        img.src = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
   async function handleImageUpload(file: File) {
-    if (!worksheet) return;
     if (!file.type.startsWith('image/')) { setUploadError('ไฟล์ที่เลือกไม่ใช่รูปภาพ'); return; }
-    if (file.size > 10 * 1024 * 1024) { setUploadError('รูปภาพใหญ่เกิน 10MB'); return; }
+    if (file.size > 25 * 1024 * 1024) { setUploadError('รูปภาพใหญ่เกิน 25MB'); return; }
     setUploading(true);
     setUploadError(null);
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await apiFetch(`/worksheets/${worksheet.id}/upload-image`, { method: 'POST', body: fd, headers: {} });
-      if (!res.ok) throw new Error(`อัปโหลดไม่สำเร็จ (${res.status})`);
-      const { url } = await res.json();
-      if (!url) throw new Error('เซิร์ฟเวอร์ไม่ได้ส่ง URL ของรูปกลับมา');
-      // Keep aspect ratio: cap the longest side at 320px
-      const dims = await new Promise<{ w: number; h: number }>(resolve => {
-        const img = new window.Image();
-        img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
-        img.onerror = () => resolve({ w: 300, h: 200 });
-        img.src = url;
-      });
-      const maxSide = 320;
-      const ratio = dims.w && dims.h ? Math.min(maxSide / dims.w, maxSide / dims.h, 1) : 1;
+      const { url, w, h } = await compressImage(file, 1200, 0.82);
+      const maxSide = 360;
+      const ratio = Math.min(maxSide / w, maxSide / h, 1);
       pushHistory(elements);
       const id = addId();
       setElements(prev => [...prev, {
         id, type: 'image', x: 80, y: 80,
-        width: Math.round((dims.w || 300) * ratio),
-        height: Math.round((dims.h || 200) * ratio),
+        width: Math.round(w * ratio),
+        height: Math.round(h * ratio),
         url,
       }]);
       setSelectedId(id);
       markDirty();
     } catch (err) {
-      console.error('Image upload failed:', err);
-      setUploadError(err instanceof Error ? err.message : 'อัปโหลดรูปภาพไม่สำเร็จ');
+      console.error('Image processing failed:', err);
+      setUploadError(err instanceof Error ? err.message : 'เพิ่มรูปภาพไม่สำเร็จ');
     } finally {
       setUploading(false);
     }
@@ -871,9 +914,17 @@ export default function WorksheetPage() {
                 if (el.type === 'table') {
                   const rows = el.rows ?? [['']];
                   const colWidths = el.colWidths ?? rows[0]!.map(() => DEFAULT_COL_WIDTH);
-                  const rowHeight = el.rowHeight ?? DEFAULT_ROW_HEIGHT;
+                  const rowHeights = el.rowHeights ?? rows.map(() => el.rowHeight ?? DEFAULT_ROW_HEIGHT);
+                  // running offsets for column-left and row-top positions
+                  const colX: number[] = []; colWidths.reduce((a, w, i) => { colX[i] = a; return a + w; }, 0);
+                  const rowY: number[] = []; rowHeights.reduce((a, h, i) => { rowY[i] = a; return a + h; }, 0);
                   const totalWidth = colWidths.reduce((a, b) => a + b, 0);
-                  const totalHeight = rows.length * rowHeight;
+                  const totalHeight = rowHeights.reduce((a, b) => a + b, 0);
+                  const tableSelected = tool === 'select' && selectedId === el.id && !viewNote;
+                  const setCur = (e: Konva.KonvaEventObject<MouseEvent>, c: string) => {
+                    const cont = e.target.getStage()?.container();
+                    if (cont) cont.style.cursor = c;
+                  };
                   return (
                     <Group
                       key={el.id} id={el.id}
@@ -881,40 +932,69 @@ export default function WorksheetPage() {
                       draggable={draggable}
                       onClick={onClick}
                       onDragEnd={e => handleElementChange(el.id, { x: e.target.x(), y: e.target.y() })}
-                      onTransformEnd={e => {
-                        const node = e.target;
-                        const sx = node.scaleX(), sy = node.scaleY();
-                        handleElementChange(el.id, {
-                          x: node.x(), y: node.y(),
-                          colWidths: colWidths.map(w => Math.max(30, w * sx)),
-                          rowHeight: Math.max(16, rowHeight * sy),
-                        });
-                        node.scaleX(1); node.scaleY(1);
-                      }}
                     >
                       <Rect width={totalWidth} height={totalHeight} fill="#ffffff" stroke={el.stroke ?? DEFAULT_COLOR} strokeWidth={1.5} />
-                      {rows.map((row, ri) => {
-                        let cx = 0;
-                        return row.map((cell, ci) => {
-                          const cw = colWidths[ci] ?? DEFAULT_COL_WIDTH;
-                          const rectX = cx;
-                          cx += cw;
-                          return (
-                            <Fragment key={`${el.id}-${ri}-${ci}`}>
-                              <Rect
-                                x={rectX} y={ri * rowHeight}
-                                width={cw} height={rowHeight}
-                                stroke={el.stroke ?? DEFAULT_COLOR} strokeWidth={0.5}
-                              />
-                              <Text
-                                x={rectX + 6} y={ri * rowHeight + 4}
-                                width={cw - 12} height={rowHeight - 8}
-                                text={cell} fontSize={13} fill={DEFAULT_COLOR}
-                                onDblClick={() => openCellEditor(el.id, ri, ci, cell)}
-                              />
-                            </Fragment>
-                          );
-                        });
+                      {rows.map((row, ri) =>
+                        row.map((cell, ci) => (
+                          <Fragment key={`${el.id}-${ri}-${ci}`}>
+                            <Rect
+                              x={colX[ci]} y={rowY[ri]}
+                              width={colWidths[ci]} height={rowHeights[ri]}
+                              stroke={el.stroke ?? DEFAULT_COLOR} strokeWidth={0.5}
+                            />
+                            <Text
+                              x={colX[ci]! + 6} y={rowY[ri]! + 4}
+                              width={(colWidths[ci] ?? DEFAULT_COL_WIDTH) - 12}
+                              height={(rowHeights[ri] ?? DEFAULT_ROW_HEIGHT) - 8}
+                              text={cell} fontSize={13} fill={DEFAULT_COLOR}
+                              onDblClick={() => openCellEditor(el.id, ri, ci, cell)}
+                            />
+                          </Fragment>
+                        ))
+                      )}
+
+                      {/* Column-width drag handles (right border of each column) */}
+                      {tableSelected && colWidths.map((cw, ci) => {
+                        const borderX = colX[ci]! + cw;
+                        return (
+                          <Rect
+                            key={`colh-${ci}`}
+                            x={borderX - 3} y={0} width={6} height={totalHeight}
+                            fill="#2563EB" opacity={0.001}
+                            draggable
+                            onMouseEnter={e => setCur(e, 'col-resize')}
+                            onMouseLeave={e => setCur(e, 'default')}
+                            onDragStart={() => pushHistory(elements)}
+                            onDragMove={e => e.target.y(0)}
+                            onDragEnd={e => {
+                              const newW = Math.max(30, e.target.x() + 3 - colX[ci]!);
+                              const next = [...colWidths]; next[ci] = newW;
+                              handleElementChange(el.id, { colWidths: next });
+                            }}
+                          />
+                        );
+                      })}
+
+                      {/* Row-height drag handles (bottom border of each row) */}
+                      {tableSelected && rowHeights.map((rh, ri) => {
+                        const borderY = rowY[ri]! + rh;
+                        return (
+                          <Rect
+                            key={`rowh-${ri}`}
+                            x={0} y={borderY - 3} width={totalWidth} height={6}
+                            fill="#2563EB" opacity={0.001}
+                            draggable
+                            onMouseEnter={e => setCur(e, 'row-resize')}
+                            onMouseLeave={e => setCur(e, 'default')}
+                            onDragStart={() => pushHistory(elements)}
+                            onDragMove={e => e.target.x(0)}
+                            onDragEnd={e => {
+                              const newH = Math.max(16, e.target.y() + 3 - rowY[ri]!);
+                              const next = [...rowHeights]; next[ri] = newH;
+                              handleElementChange(el.id, { rowHeights: next, rowHeight: undefined });
+                            }}
+                          />
+                        );
                       })}
                     </Group>
                   );
@@ -962,6 +1042,7 @@ export default function WorksheetPage() {
             if (isCell) {
               return (
                 <input
+                  ref={editorRef as React.RefObject<HTMLInputElement>}
                   autoFocus
                   className={styles.inlineEditor}
                   style={commonStyle}
@@ -978,18 +1059,19 @@ export default function WorksheetPage() {
                 />
               );
             }
-            // Text element — multi-line textarea (Enter = newline, Esc/blur = commit)
+            // Text element — multi-line textarea (Enter = commit, Shift+Enter = new line)
             return (
               <textarea
+                ref={editorRef as React.RefObject<HTMLTextAreaElement>}
                 autoFocus
                 className={styles.inlineEditor}
                 style={{ ...commonStyle, resize: 'none', overflow: 'hidden', lineHeight: 1.3 }}
                 value={editValue}
-                placeholder="พิมพ์ข้อความ… (Enter ขึ้นบรรทัดใหม่)"
+                placeholder="พิมพ์ข้อความ… (Shift+Enter ขึ้นบรรทัดใหม่)"
                 onChange={e => setEditValue(e.target.value)}
-                onFocus={e => e.target.select()}
                 onKeyDown={e => {
-                  if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitEdit(); }
+                  else if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
                   e.stopPropagation();
                 }}
                 onBlur={commitEdit}
