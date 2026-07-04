@@ -903,7 +903,11 @@ export default function WorksheetPage() {
             onMouseUp={handleStageMouseUp}
             onWheel={handleWheel}
             draggable={tool === 'select'}
-            onDragEnd={e => setPosition({ x: e.target.x(), y: e.target.y() })}
+            onDragEnd={e => {
+              // dragend bubbles from child elements too — only pan when the
+              // Stage itself was the drag target, not a shape/image/table
+              if (e.target === e.target.getStage()) setPosition({ x: e.target.x(), y: e.target.y() });
+            }}
             style={{ cursor: CURSOR_MAP[tool] }}
           >
             <Layer>
