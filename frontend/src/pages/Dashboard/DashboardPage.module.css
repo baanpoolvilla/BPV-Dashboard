@@ -18,6 +18,18 @@
   color: var(--text-primary);
 }
 
+.errorBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--red-dim);
+  color: var(--red);
+  font-size: 13px;
+}
+
 .filters {
   display: flex;
   align-items: center;

@@ -51,6 +51,7 @@ export default function DashboardPage() {
   const [empPage, setEmpPage] = useState(1);
   const [empLoading, setEmpLoading] = useState(true);
   const [summaryLoading, setSummaryLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
@@ -63,6 +64,10 @@ export default function DashboardPage() {
       setSummary(s);
       setDeptPerf(d);
       setBreakdown(b);
+      setLoadError(null);
+    } catch (err) {
+      console.error('Dashboard summary fetch failed:', err);
+      setLoadError('โหลดข้อมูลไม่สำเร็จ อาจเกิดจากการเชื่อมต่อกับเซิร์ฟเวอร์ขัดข้อง หรือเซสชันหมดอายุ');
     } finally {
       setSummaryLoading(false);
     }
@@ -76,6 +81,10 @@ export default function DashboardPage() {
       );
       setEmployees(res.data);
       setEmpTotal(res.total);
+      setLoadError(null);
+    } catch (err) {
+      console.error('Dashboard employees fetch failed:', err);
+      setLoadError('โหลดข้อมูลไม่สำเร็จ อาจเกิดจากการเชื่อมต่อกับเซิร์ฟเวอร์ขัดข้อง หรือเซสชันหมดอายุ');
     } finally {
       setEmpLoading(false);
     }
@@ -123,6 +132,13 @@ export default function DashboardPage() {
             </select>
           </div>
         </div>
+
+        {loadError && (
+          <div className={styles.errorBanner}>
+            <span>{loadError}</span>
+            <button className="btn btn-ghost" onClick={() => { fetchSummary(); fetchEmployees(); }}>ลองใหม่</button>
+          </div>
+        )}
 
         {/* Metric cards */}
         <div className={styles.metrics}>
