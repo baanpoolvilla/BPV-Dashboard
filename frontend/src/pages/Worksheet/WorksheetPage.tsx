@@ -170,18 +170,30 @@ export default function WorksheetPage() {
   const transformerRef = useRef<Konva.Transformer>(null);
   const loadedImages = useRef<Map<string, HTMLImageElement>>(new Map());
   const editorRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
+  const editorOpenedAt = useRef(0);
   const [, forceUpdate] = useState(0);
 
   // Reliably focus the inline editor when it opens (autoFocus can lose the race
   // against the canvas click that triggered it)
   useEffect(() => {
     if (!editing) return;
+    editorOpenedAt.current = Date.now();
     const t = setTimeout(() => {
       const node = editorRef.current;
       if (node) { node.focus(); node.select(); }
     }, 0);
     return () => clearTimeout(t);
   }, [editing]);
+
+  // The click that opens the editor can immediately blur it; ignore that first
+  // spurious blur and grab focus back instead of committing.
+  function handleEditorBlur() {
+    if (Date.now() - editorOpenedAt.current < 250) {
+      requestAnimationFrame(() => editorRef.current?.focus());
+      return;
+    }
+    commitEdit();
+  }
 
   useEffect(() => {
     if (!userId || !projectId) return;
@@ -1061,6 +1073,7 @@ export default function WorksheetPage() {
                       {/* Column-width drag handles (right border of each column) */}
                       {tableSelected && colWidths.map((cw, ci) => {
                         const borderX = colX[ci]! + cw;
+                        const groupAbsY = position.y + (el.y ?? 0) * scale;
                         return (
                           <Rect
                             key={`colh-${ci}`}
@@ -1069,7 +1082,7 @@ export default function WorksheetPage() {
                             draggable
                             onMouseEnter={e => setCur(e, 'col-resize')}
                             onMouseLeave={e => setCur(e, 'default')}
-                            onDragMove={e => e.target.y(0)}
+                            dragBoundFunc={pos => ({ x: pos.x, y: groupAbsY })}
                             onDragEnd={e => {
                               const newW = Math.max(30, e.target.x() + 3 - colX[ci]!);
                               const next = [...colWidths]; next[ci] = newW;
@@ -1083,6 +1096,7 @@ export default function WorksheetPage() {
                       {/* Row-height drag handles (bottom border of each row) */}
                       {tableSelected && rowHeights.map((rh, ri) => {
                         const borderY = rowY[ri]! + rh;
+                        const groupAbsX = position.x + (el.x ?? 0) * scale;
                         return (
                           <Rect
                             key={`rowh-${ri}`}
@@ -1091,7 +1105,7 @@ export default function WorksheetPage() {
                             draggable
                             onMouseEnter={e => setCur(e, 'row-resize')}
                             onMouseLeave={e => setCur(e, 'default')}
-                            onDragMove={e => e.target.x(0)}
+                            dragBoundFunc={pos => ({ x: groupAbsX, y: pos.y })}
                             onDragEnd={e => {
                               const newH = Math.max(16, e.target.y() + 3 - rowY[ri]!);
                               const next = [...rowHeights]; next[ri] = newH;
@@ -1160,7 +1174,7 @@ export default function WorksheetPage() {
                     else if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
                     e.stopPropagation();
                   }}
-                  onBlur={commitEdit}
+                  onBlur={handleEditorBlur}
                 />
               );
             }
@@ -1179,7 +1193,7 @@ export default function WorksheetPage() {
                   else if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
                   e.stopPropagation();
                 }}
-                onBlur={commitEdit}
+                onBlur={handleEditorBlur}
               />
             );
           })()}
