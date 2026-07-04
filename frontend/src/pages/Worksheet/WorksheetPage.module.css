@@ -145,6 +145,22 @@
     #f7f8fc;
 }
 
+/* ─── Inline text editor overlay ─────────────────────── */
+.inlineEditor {
+  position: absolute;
+  z-index: 5;
+  padding: 1px 3px;
+  margin: 0;
+  border: 1.5px solid var(--accent-blue);
+  border-radius: 2px;
+  background: #fff;
+  color: #1a2033;
+  font-family: inherit;
+  line-height: 1.2;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
 /* ─── Zoom controls ───────────────────────────────────── */
 .zoomControls {
   position: absolute;

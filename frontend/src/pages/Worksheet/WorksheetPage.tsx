@@ -69,6 +69,8 @@ export default function WorksheetPage() {
   const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [editing, setEditing] = useState<{ id: string; ri?: number; ci?: number } | null>(null);
+  const [editValue, setEditValue] = useState('');
 
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -123,6 +125,8 @@ export default function WorksheetPage() {
       .catch(() => setSaveStatus('dirty'));
   }, [debouncedElements, worksheet]);
 
+  useEffect(() => { if (viewNote) setEditing(null); }, [viewNote]);
+
   useEffect(() => {
     const tr = transformerRef.current;
     const stage = stageRef.current;
@@ -135,6 +139,16 @@ export default function WorksheetPage() {
     }
     tr.getLayer()?.batchDraw();
   }, [selectedId, tool]);
+
+  // Re-measure the selection box whenever a selected element's own geometry
+  // changes (e.g. table cell edits) — Konva doesn't auto-recompute a Group's
+  // cached bounding box unless the node's transform itself changes.
+  useEffect(() => {
+    const tr = transformerRef.current;
+    if (!tr || tr.nodes().length === 0) return;
+    tr.forceUpdate();
+    tr.getLayer()?.batchDraw();
+  }, [elements]);
 
   function markDirty() { setSaveStatus('dirty'); }
   function addId() { return `el_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`; }
@@ -217,15 +231,13 @@ export default function WorksheetPage() {
       setIsDrawing(true);
       setCurrentLine([pos.x, pos.y]);
     } else if (tool === 'text') {
-      const val = window.prompt('พิมพ์ข้อความ:', '');
+      pushHistory(elements);
+      const id = addId();
+      setElements(prev => [...prev, { id, type: 'text', x: pos.x, y: pos.y, text: '', fontSize, color }]);
+      setSelectedId(id);
       setTool('select');
-      if (val !== null && val.trim() !== '') {
-        pushHistory(elements);
-        const id = addId();
-        setElements(prev => [...prev, { id, type: 'text', x: pos.x, y: pos.y, text: val, fontSize, color }]);
-        setSelectedId(id);
-        markDirty();
-      }
+      setEditValue('');
+      setEditing({ id });
     } else if (tool === 'rect' || tool === 'circle' || tool === 'line') {
       setDrawStartPos({ x: pos.x, y: pos.y });
       setIsDrawing(true);
@@ -329,6 +341,61 @@ export default function WorksheetPage() {
     setElements(prev => prev.filter(el => el.id !== selectedId));
     setSelectedId(null);
     markDirty();
+  }
+
+  function openCellEditor(id: string, ri: number, ci: number, currentValue: string) {
+    if (viewNote) return;
+    setSelectedId(id);
+    setEditValue(currentValue);
+    setEditing({ id, ri, ci });
+  }
+
+  function getEditorRect(target: { id: string; ri?: number; ci?: number }) {
+    const el = elements.find(e => e.id === target.id);
+    if (!el) return null;
+    if (target.ri === undefined || target.ci === undefined) {
+      return { x: el.x ?? 0, y: (el.y ?? 0) - 4, width: 220, height: (el.fontSize ?? fontSize) * 1.4 + 4, fontSize: el.fontSize ?? fontSize };
+    }
+    const rows = el.rows ?? [['']];
+    const colWidths = el.colWidths ?? rows[0]!.map(() => DEFAULT_COL_WIDTH);
+    const rowHeight = el.rowHeight ?? DEFAULT_ROW_HEIGHT;
+    const cx = colWidths.slice(0, target.ci).reduce((a, b) => a + b, 0);
+    return {
+      x: (el.x ?? 0) + cx, y: (el.y ?? 0) + target.ri * rowHeight,
+      width: colWidths[target.ci] ?? DEFAULT_COL_WIDTH, height: rowHeight,
+      fontSize: 13,
+    };
+  }
+
+  function commitEdit() {
+    if (!editing) return;
+    const { id, ri, ci } = editing;
+    if (ri === undefined || ci === undefined) {
+      if (editValue.trim() === '') {
+        setElements(prev => prev.filter(el => el.id !== id));
+      } else {
+        handleElementChange(id, { text: editValue });
+      }
+    } else {
+      const el = elements.find(e => e.id === id);
+      if (el) {
+        const rows = (el.rows ?? [['']]).map(r => [...r]);
+        rows[ri]![ci] = editValue;
+        handleElementChange(id, { rows });
+      }
+    }
+    setEditing(null);
+  }
+
+  function cancelEdit() {
+    if (!editing) return;
+    const { id, ri } = editing;
+    if (ri === undefined) {
+      // discard a freshly-created, never-typed-into text element
+      const el = elements.find(e => e.id === id);
+      if (el && (el.text ?? '') === '') setElements(prev => prev.filter(e => e.id !== id));
+    }
+    setEditing(null);
   }
 
   async function handleImageUpload(file: File) {
@@ -570,8 +637,9 @@ export default function WorksheetPage() {
                     onDragEnd={e => handleElementChange(el.id, { x: e.target.x(), y: e.target.y() })}
                     onDblClick={() => {
                       if (viewNote) return;
-                      const val = window.prompt('แก้ไขข้อความ:', el.text ?? '');
-                      if (val !== null) handleElementChange(el.id, { text: val });
+                      setSelectedId(el.id);
+                      setEditValue(el.text ?? '');
+                      setEditing({ id: el.id });
                     }}
                   />
                 );
@@ -716,15 +784,7 @@ export default function WorksheetPage() {
                                 x={rectX + 6} y={ri * rowHeight + 4}
                                 width={cw - 12} height={rowHeight - 8}
                                 text={cell} fontSize={13} fill={DEFAULT_COLOR}
-                                onDblClick={() => {
-                                  if (viewNote) return;
-                                  const val = window.prompt('แก้ไขข้อความในเซลล์:', cell);
-                                  if (val !== null) {
-                                    const newRows = rows.map(r => [...r]);
-                                    newRows[ri]![ci] = val;
-                                    handleElementChange(el.id, { rows: newRows });
-                                  }
-                                }}
+                                onDblClick={() => openCellEditor(el.id, ri, ci, cell)}
                               />
                             </Fragment>
                           );
@@ -760,6 +820,34 @@ export default function WorksheetPage() {
                 borderStroke="#2563EB" anchorFill="#2563EB" anchorStroke="#2563EB" anchorCornerRadius={3} />
             </Layer>
           </Stage>
+
+          {/* Inline text editor overlay */}
+          {editing && (() => {
+            const rect = getEditorRect(editing);
+            if (!rect) return null;
+            return (
+              <input
+                autoFocus
+                className={styles.inlineEditor}
+                style={{
+                  left: rect.x * scale + position.x,
+                  top: rect.y * scale + position.y,
+                  width: rect.width * scale,
+                  height: rect.height * scale,
+                  fontSize: rect.fontSize * scale,
+                }}
+                value={editValue}
+                onChange={e => setEditValue(e.target.value)}
+                onFocus={e => e.target.select()}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
+                  else if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+                  e.stopPropagation();
+                }}
+                onBlur={commitEdit}
+              />
+            );
+          })()}
 
           {/* Zoom controls */}
           <div className={styles.zoomControls}>
