@@ -1,13 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
 import { useParams } from 'react-router-dom';
-import { Stage, Layer, Text, Image as KonvaImage, Line, Rect, Ellipse, Transformer } from 'react-konva';
+import { Stage, Layer, Text, Image as KonvaImage, Line, Rect, Ellipse, Group, Transformer } from 'react-konva';
 import type Konva from 'konva';
 import { apiGet, apiPut, apiPost, apiFetch } from '../../api/client';
 import type { Worksheet, CanvasData, CanvasElement, MeetingNoteItem, MeetingNoteDetail } from '../../api/types';
 import AppShell from '../../components/AppShell';
 import styles from './WorksheetPage.module.css';
 
-type Tool = 'select' | 'text' | 'draw' | 'rect' | 'circle' | 'line' | 'image' | 'eraser';
+type Tool = 'select' | 'text' | 'draw' | 'rect' | 'circle' | 'line' | 'image' | 'eraser' | 'table';
 
 const COLORS = [
   '#1a2033', '#2563EB', '#7C3AED', '#16a34a',
@@ -23,14 +23,20 @@ const TOOLS: [Tool, string, string][] = [
   ['rect', '▭', 'สี่เหลี่ยม'],
   ['circle', '○', 'วงกลม'],
   ['line', '╱', 'เส้นตรง'],
+  ['table', '▦', 'ตาราง'],
   ['eraser', '⌫', 'ยางลบ'],
 ];
 
 const CURSOR_MAP: Record<Tool, string> = {
   select: 'default', text: 'text', draw: 'crosshair',
   rect: 'crosshair', circle: 'crosshair', line: 'crosshair',
-  image: 'default', eraser: 'cell',
+  image: 'default', eraser: 'cell', table: 'crosshair',
 };
+
+const DEFAULT_TABLE_ROWS = 3;
+const DEFAULT_TABLE_COLS = 3;
+const DEFAULT_COL_WIDTH = 100;
+const DEFAULT_ROW_HEIGHT = 32;
 
 function useDebounce<T>(value: T, ms: number): T {
   const [dv, setDv] = useState(value);
@@ -51,6 +57,7 @@ export default function WorksheetPage() {
   const [fontSize, setFontSize] = useState(16);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [isErasing, setIsErasing] = useState(false);
   const [currentLine, setCurrentLine] = useState<number[]>([]);
   const [drawStartPos, setDrawStartPos] = useState<{ x: number; y: number } | null>(null);
   const [previewEl, setPreviewEl] = useState<CanvasElement | null>(null);
@@ -148,6 +155,8 @@ export default function WorksheetPage() {
   function handleElementClick(id: string) {
     if (viewNote) return;
     if (tool === 'eraser') {
+      const el = elements.find(e => e.id === id);
+      if (el?.type === 'freedraw') return; // freehand strokes are only partially erased via drag
       pushHistory(elements);
       setElements(prev => prev.filter(el => el.id !== id));
       markDirty();
@@ -156,30 +165,79 @@ export default function WorksheetPage() {
     if (tool === 'select') setSelectedId(id);
   }
 
+  function eraseAtPoint(pos: { x: number; y: number }) {
+    const radius = Math.max(strokeWidth * 4, 14);
+    setElements(prev => {
+      const result: CanvasElement[] = [];
+      for (const el of prev) {
+        if (el.type !== 'freedraw' || !el.points || el.points.length < 4) { result.push(el); continue; }
+        const pts = el.points;
+        const segments: number[][] = [];
+        let current: number[] = [];
+        let removedAny = false;
+        for (let i = 0; i < pts.length; i += 2) {
+          const x = pts[i] as number, y = pts[i + 1] as number;
+          const dx = x - pos.x, dy = y - pos.y;
+          if (dx * dx + dy * dy <= radius * radius) {
+            removedAny = true;
+            if (current.length >= 4) segments.push(current);
+            current = [];
+          } else {
+            current.push(x, y);
+          }
+        }
+        if (current.length >= 4) segments.push(current);
+        if (!removedAny) { result.push(el); continue; }
+        segments.forEach((seg, idx) => {
+          result.push({ ...el, id: idx === 0 ? el.id : addId(), points: seg });
+        });
+      }
+      return result;
+    });
+  }
+
   function handleStageMouseDown(e: Konva.KonvaEventObject<MouseEvent>) {
     if (tool === 'select') {
       if (e.target === e.target.getStage()) setSelectedId(null);
       return;
     }
-    if (tool === 'eraser') return;
     const stage = stageRef.current;
     if (!stage) return;
     const pos = stage.getRelativePointerPosition();
     if (!pos) return;
 
+    if (tool === 'eraser') {
+      pushHistory(elements);
+      setIsErasing(true);
+      eraseAtPoint(pos);
+      return;
+    }
+
     if (tool === 'draw') {
       setIsDrawing(true);
       setCurrentLine([pos.x, pos.y]);
     } else if (tool === 'text') {
-      pushHistory(elements);
-      const id = addId();
-      setElements(prev => [...prev, { id, type: 'text', x: pos.x, y: pos.y, text: 'พิมพ์ข้อความ', fontSize, color }]);
-      setSelectedId(id);
+      const val = window.prompt('พิมพ์ข้อความ:', '');
       setTool('select');
-      markDirty();
+      if (val !== null && val.trim() !== '') {
+        pushHistory(elements);
+        const id = addId();
+        setElements(prev => [...prev, { id, type: 'text', x: pos.x, y: pos.y, text: val, fontSize, color }]);
+        setSelectedId(id);
+        markDirty();
+      }
     } else if (tool === 'rect' || tool === 'circle' || tool === 'line') {
       setDrawStartPos({ x: pos.x, y: pos.y });
       setIsDrawing(true);
+    } else if (tool === 'table') {
+      pushHistory(elements);
+      const id = addId();
+      const rows = Array.from({ length: DEFAULT_TABLE_ROWS }, () => Array(DEFAULT_TABLE_COLS).fill(''));
+      const colWidths = Array(DEFAULT_TABLE_COLS).fill(DEFAULT_COL_WIDTH);
+      setElements(prev => [...prev, { id, type: 'table', x: pos.x, y: pos.y, rows, colWidths, rowHeight: DEFAULT_ROW_HEIGHT, stroke: color }]);
+      setSelectedId(id);
+      setTool('select');
+      markDirty();
     }
   }
 
@@ -189,6 +247,10 @@ export default function WorksheetPage() {
     const pos = stage.getRelativePointerPosition();
     if (!pos) return;
 
+    if (tool === 'eraser' && isErasing) {
+      eraseAtPoint(pos);
+      return;
+    }
     if (tool === 'draw' && isDrawing) {
       setCurrentLine(prev => [...prev, pos.x, pos.y]);
       return;
@@ -221,6 +283,11 @@ export default function WorksheetPage() {
   }
 
   function handleStageMouseUp() {
+    if (tool === 'eraser' && isErasing) {
+      setIsErasing(false);
+      markDirty();
+      return;
+    }
     if (tool === 'draw' && isDrawing) {
       setIsDrawing(false);
       if (currentLine.length > 2) {
@@ -277,6 +344,31 @@ export default function WorksheetPage() {
     markDirty();
   }
 
+  function handlePaste(e: React.ClipboardEvent<HTMLDivElement>) {
+    if (viewNote) return;
+    const text = e.clipboardData.getData('text/plain');
+    if (!text || !text.includes('\t')) return; // only intercept tabular (Excel) paste; let other paste behave normally
+    e.preventDefault();
+    const rows = text.replace(/\r/g, '').split('\n').filter(r => r.length > 0).map(r => r.split('\t'));
+    if (rows.length === 0) return;
+    const maxCols = Math.max(...rows.map(r => r.length));
+    const normalized = rows.map(r => {
+      const copy = [...r];
+      while (copy.length < maxCols) copy.push('');
+      return copy;
+    });
+    const colWidths = Array.from({ length: maxCols }, (_, ci) => {
+      const longest = Math.max(...normalized.map(r => (r[ci] ?? '').length), 4);
+      return Math.min(220, Math.max(70, longest * 8));
+    });
+    pushHistory(elements);
+    const id = addId();
+    setElements(prev => [...prev, { id, type: 'table', x: 80, y: 80, rows: normalized, colWidths, rowHeight: DEFAULT_ROW_HEIGHT, stroke: color }]);
+    setSelectedId(id);
+    setTool('select');
+    markDirty();
+  }
+
   async function saveMeetingNote() {
     if (!worksheet) return;
     await apiPost(`/worksheets/${worksheet.id}/meeting-notes`, { meetingDate: new Date().toISOString() });
@@ -300,6 +392,13 @@ export default function WorksheetPage() {
     e.evt.preventDefault();
     const stage = stageRef.current;
     if (!stage) return;
+
+    // Horizontal trackpad swipe / shift+wheel: pan sideways instead of zooming
+    if (Math.abs(e.evt.deltaX) > Math.abs(e.evt.deltaY)) {
+      setPosition(prev => ({ x: prev.x - e.evt.deltaX, y: prev.y - e.evt.deltaY }));
+      return;
+    }
+
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
     const scaleBy = 1.08;
@@ -404,7 +503,7 @@ export default function WorksheetPage() {
           </div>
 
           <div className={styles.toolGroup}>
-            <p className={styles.toolGroupLabel}>ขนาดเส้น</p>
+            <p className={styles.toolGroupLabel}>{tool === 'eraser' ? 'ขนาดยางลบ' : 'ขนาดเส้น'}</p>
             <div className={styles.sliderRow}>
               <input type="range" min={1} max={12} value={strokeWidth}
                 onChange={e => setStrokeWidth(+e.target.value)} className={styles.slider} />
@@ -429,6 +528,8 @@ export default function WorksheetPage() {
         <div
           ref={containerRef}
           className={styles.canvasArea}
+          tabIndex={0}
+          onPaste={handlePaste}
           onDragOver={e => e.preventDefault()}
           onDrop={e => {
             e.preventDefault();
@@ -572,6 +673,66 @@ export default function WorksheetPage() {
                     onDragEnd={e => handleElementChange(el.id, { x: e.target.x(), y: e.target.y() })}
                   />
                 );
+
+                if (el.type === 'table') {
+                  const rows = el.rows ?? [['']];
+                  const colWidths = el.colWidths ?? rows[0]!.map(() => DEFAULT_COL_WIDTH);
+                  const rowHeight = el.rowHeight ?? DEFAULT_ROW_HEIGHT;
+                  const totalWidth = colWidths.reduce((a, b) => a + b, 0);
+                  const totalHeight = rows.length * rowHeight;
+                  return (
+                    <Group
+                      key={el.id} id={el.id}
+                      x={el.x ?? 0} y={el.y ?? 0}
+                      draggable={draggable}
+                      onClick={onClick}
+                      onDragEnd={e => handleElementChange(el.id, { x: e.target.x(), y: e.target.y() })}
+                      onTransformEnd={e => {
+                        const node = e.target;
+                        const sx = node.scaleX(), sy = node.scaleY();
+                        handleElementChange(el.id, {
+                          x: node.x(), y: node.y(),
+                          colWidths: colWidths.map(w => Math.max(30, w * sx)),
+                          rowHeight: Math.max(16, rowHeight * sy),
+                        });
+                        node.scaleX(1); node.scaleY(1);
+                      }}
+                    >
+                      <Rect width={totalWidth} height={totalHeight} fill="#ffffff" stroke={el.stroke ?? DEFAULT_COLOR} strokeWidth={1.5} />
+                      {rows.map((row, ri) => {
+                        let cx = 0;
+                        return row.map((cell, ci) => {
+                          const cw = colWidths[ci] ?? DEFAULT_COL_WIDTH;
+                          const rectX = cx;
+                          cx += cw;
+                          return (
+                            <Fragment key={`${el.id}-${ri}-${ci}`}>
+                              <Rect
+                                x={rectX} y={ri * rowHeight}
+                                width={cw} height={rowHeight}
+                                stroke={el.stroke ?? DEFAULT_COLOR} strokeWidth={0.5}
+                              />
+                              <Text
+                                x={rectX + 6} y={ri * rowHeight + 4}
+                                width={cw - 12} height={rowHeight - 8}
+                                text={cell} fontSize={13} fill={DEFAULT_COLOR}
+                                onDblClick={() => {
+                                  if (viewNote) return;
+                                  const val = window.prompt('แก้ไขข้อความในเซลล์:', cell);
+                                  if (val !== null) {
+                                    const newRows = rows.map(r => [...r]);
+                                    newRows[ri]![ci] = val;
+                                    handleElementChange(el.id, { rows: newRows });
+                                  }
+                                }}
+                              />
+                            </Fragment>
+                          );
+                        });
+                      })}
+                    </Group>
+                  );
+                }
 
                 return null;
               })}
