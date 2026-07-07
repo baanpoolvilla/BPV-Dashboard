@@ -5,6 +5,85 @@
   margin: -24px;
 }
 
+/* ─── Left insert menu ────────────────────────────────── */
+.insertBar {
+  width: 150px;
+  flex-shrink: 0;
+  background: var(--surface-0);
+  border-right: 1px solid var(--border);
+  padding: 12px 8px;
+  overflow-y: auto;
+}
+
+.insertLabel {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  padding: 0 6px;
+  margin-bottom: 5px;
+}
+
+.insertBtn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  padding: 7px 9px;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+
+.insertBtn:hover { background: var(--surface-1); color: var(--text-primary); }
+
+.insertIcon {
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.insertText { font-size: 12px; font-weight: 500; white-space: nowrap; }
+
+.insertDanger { color: var(--red); }
+.insertDanger:hover { background: var(--red-dim); border-color: var(--red); }
+
+.insertHint {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  padding: 10px 6px 0;
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+/* ─── Document header ─────────────────────────────────── */
+.docHeader {
+  padding: 0 24px 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.docProject {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.docSubtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
 /* ─── Document area ────────────────────────────────────── */
 .docArea {
   flex: 1;

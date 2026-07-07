@@ -40,7 +40,35 @@ function compressToDataUrl(file: File, maxSide = 1200, quality = 0.82): Promise<
 }
 
 // ─── The editable meeting document ──────────────────────────────────────────
-interface EditorHandle { flush: () => Promise<void> }
+interface EditorHandle {
+  flush: () => Promise<void>;
+  insert: (block: PartialBlock) => void;
+  deleteCurrent: () => void;
+}
+
+// Quick-insert blocks offered by the left menu
+const INSERTS: { icon: string; label: string; block: PartialBlock }[] = [
+  { icon: 'H₁', label: 'หัวข้อใหญ่', block: { type: 'heading', props: { level: 1 } } },
+  { icon: 'H₂', label: 'หัวข้อย่อย', block: { type: 'heading', props: { level: 2 } } },
+  { icon: '•', label: 'รายการ', block: { type: 'bulletListItem' } },
+  { icon: '☑', label: 'เช็คลิสต์', block: { type: 'checkListItem' } },
+  { icon: '❝', label: 'ข้อความอ้างอิง', block: { type: 'quote' } },
+  {
+    icon: '▦', label: 'ตาราง',
+    block: {
+      type: 'table',
+      content: {
+        type: 'tableContent',
+        rows: [
+          { cells: ['', '', ''] },
+          { cells: ['', '', ''] },
+          { cells: ['', '', ''] },
+        ],
+      },
+    } as PartialBlock,
+  },
+  { icon: '🖼', label: 'รูปภาพ', block: { type: 'image' } },
+];
 
 const MeetingEditor = forwardRef<EditorHandle, {
   worksheetId: string;
@@ -70,7 +98,19 @@ const MeetingEditor = forwardRef<EditorHandle, {
 
   useImperativeHandle(ref, () => ({
     flush: async () => { if (timer.current) clearTimeout(timer.current); await save(); },
-  }), [save]);
+    insert: (block: PartialBlock) => {
+      const ref = editor.getTextCursorPosition().block;
+      const inserted = editor.insertBlocks([block], ref, 'after');
+      const target = inserted?.[0];
+      if (target) editor.setTextCursorPosition(target, 'end');
+      editor.focus();
+    },
+    deleteCurrent: () => {
+      const cur = editor.getTextCursorPosition().block;
+      editor.removeBlocks([cur]);
+      editor.focus();
+    },
+  }), [editor, save]);
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
@@ -99,6 +139,7 @@ function ReadonlyNote({ blocks }: { blocks: PartialBlock[] }) {
 export default function WorksheetPage() {
   const { userId, projectId } = useParams<{ userId: string; projectId: string }>();
   const [worksheet, setWorksheet] = useState<Worksheet | null>(null);
+  const [projectName, setProjectName] = useState('');
   const [initialBlocks, setInitialBlocks] = useState<PartialBlock[] | undefined>(undefined);
   const [loaded, setLoaded] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
@@ -110,9 +151,10 @@ export default function WorksheetPage() {
 
   useEffect(() => {
     if (!userId || !projectId) return;
-    apiGet<{ id: string; worksheetId?: string }[]>(`/users/${userId}/projects`)
+    apiGet<{ id: string; name: string; worksheetId?: string }[]>(`/users/${userId}/projects`)
       .then(projects => {
         const proj = projects.find(p => p.id === projectId);
+        if (proj?.name) setProjectName(proj.name);
         if (!proj?.worksheetId) { setLoaded(true); return; }
         return apiGet<Worksheet>(`/worksheets/${proj.worksheetId}`).then(ws => {
           setWorksheet(ws);
@@ -152,7 +194,7 @@ export default function WorksheetPage() {
     <AppShell
       backTo={`/employees/${userId}`}
       backLabel="โปรไฟล์พนักงาน"
-      title="บันทึกการประชุม"
+      title={projectName ? `บันทึกการประชุม · ${projectName}` : 'บันทึกการประชุม'}
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {!viewNote && (
@@ -166,9 +208,41 @@ export default function WorksheetPage() {
       }
     >
       <div className={styles.worksheetLayout}>
+        {/* Left insert menu (edit mode only) */}
+        {!viewNote && worksheet && (
+          <div className={styles.insertBar}>
+            <p className={styles.insertLabel}>แทรก</p>
+            {INSERTS.map(item => (
+              <button
+                key={item.label}
+                className={styles.insertBtn}
+                title={item.label}
+                onClick={() => editorRef.current?.insert(item.block)}
+              >
+                <span className={styles.insertIcon}>{item.icon}</span>
+                <span className={styles.insertText}>{item.label}</span>
+              </button>
+            ))}
+            <p className={styles.insertLabel} style={{ marginTop: 10 }}>จัดการ</p>
+            <button
+              className={`${styles.insertBtn} ${styles.insertDanger}`}
+              title="ลบบล็อก/ตารางที่เคอร์เซอร์อยู่"
+              onClick={() => editorRef.current?.deleteCurrent()}
+            >
+              <span className={styles.insertIcon}>🗑</span>
+              <span className={styles.insertText}>ลบบล็อกนี้</span>
+            </button>
+            <p className={styles.insertHint}>เคล็ดลับ: พิมพ์ “/” ในเอกสารเพื่อเลือกบล็อกได้เช่นกัน</p>
+          </div>
+        )}
+
         <div className={styles.docArea}>
           {viewNote ? (
             <div className={styles.docPaper}>
+              <div className={styles.docHeader}>
+                <p className={styles.docProject}>{projectName || 'โปรเจกต์'}</p>
+                <p className={styles.docSubtitle}>บันทึกการประชุม</p>
+              </div>
               <div className={styles.snapshotBar}>
                 <span>
                   📅 บันทึกเมื่อ {new Date(viewNote.meetingDate).toLocaleDateString('th-TH', { dateStyle: 'long' })}
@@ -182,6 +256,10 @@ export default function WorksheetPage() {
             <div className={styles.docPaper}><p className={styles.loading}>กำลังโหลด…</p></div>
           ) : worksheet ? (
             <div className={styles.docPaper}>
+              <div className={styles.docHeader}>
+                <p className={styles.docProject}>{projectName || 'โปรเจกต์'}</p>
+                <p className={styles.docSubtitle}>บันทึกการประชุม</p>
+              </div>
               <MeetingEditor
                 key={worksheet.id}
                 ref={editorRef}
