@@ -91,7 +91,8 @@ export interface CanvasElement {
 
 export interface CanvasData {
   version: number;
-  elements: CanvasElement[];
+  elements?: CanvasElement[];   // legacy freeform canvas (v1)
+  blocks?: unknown[];           // BlockNote document (v2, meeting notes)
 }
 
 export interface Worksheet {

@@ -11,10 +11,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "konva": "^10.3.0",
+    "@blocknote/core": "^0.51.4",
+    "@blocknote/mantine": "^0.51.4",
+    "@blocknote/react": "^0.51.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-konva": "^19.2.5",
     "react-router-dom": "^7.18.1",
     "recharts": "^3.9.0",
     "zustand": "^5.0.14"

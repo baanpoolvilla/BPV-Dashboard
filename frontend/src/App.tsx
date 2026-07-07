@@ -1,9 +1,13 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { useAuthStore } from './store/auth';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/Dashboard/DashboardPage';
 import EmployeePage from './pages/Employee/EmployeePage';
-import WorksheetPage from './pages/Worksheet/WorksheetPage';
+
+// The worksheet page pulls in the heavy BlockNote editor — load it on demand
+// so the dashboard/employee pages stay light.
+const WorksheetPage = lazy(() => import('./pages/Worksheet/WorksheetPage'));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore(s => s.isAuthenticated);
@@ -24,7 +28,7 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<RequireAuth><RootRoute /></RequireAuth>} />
         <Route path="/employees/:userId" element={<RequireAuth><EmployeePage /></RequireAuth>} />
-        <Route path="/employees/:userId/projects/:projectId/worksheet" element={<RequireAuth><WorksheetPage /></RequireAuth>} />
+        <Route path="/employees/:userId/projects/:projectId/worksheet" element={<RequireAuth><Suspense fallback={null}><WorksheetPage /></Suspense></RequireAuth>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
